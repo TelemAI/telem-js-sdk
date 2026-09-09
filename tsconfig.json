@@ -1,0 +1,29 @@
+{
+  // Same stance as config-core and create-telemai: every file here runs straight
+  // through `node --test` type stripping, so `npm test` works in a fresh checkout
+  // with NOTHING installed. The devDependencies (tsup, typescript) are needed only
+  // by `npm run build` / `npm run typecheck`.
+  //
+  // `erasableSyntaxOnly` is load-bearing for the same reason it is there: it rejects
+  // enums, namespaces and parameter properties — the TypeScript node CANNOT strip.
+  // The published artifact is the tsup dual build, but the test suite is the source.
+  "compilerOptions": {
+    "target": "ES2022",
+    // "DOM" for the web-platform half of the surface — fetch, Headers, RequestInit,
+    // AbortSignal — which is the SDK's transport on Node, Workers and the browser
+    // alike. It is load-bearing, not cosmetic: @types/node declares most of those
+    // globals but NOT `HeadersInit`, which test/helpers.ts:124 uses, and "DOM.Iterable"
+    // is what lets the same line iterate a `Headers`. (openclaw-plugin-telem carries
+    // "DOM" for the same transport reason, but not "DOM.Iterable".)
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "module": "nodenext",
+    "moduleResolution": "nodenext",
+    "allowImportingTsExtensions": true,
+    "erasableSyntaxOnly": true,
+    "verbatimModuleSyntax": true,
+    "noEmit": true,
+    "strict": true,
+    "skipLibCheck": true
+  },
+  "include": ["src/**/*.ts", "test/**/*.ts", "examples/**/*.ts"]
+}
