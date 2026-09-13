@@ -59,6 +59,11 @@ function csvEnv(raw: string | undefined): string[] | undefined {
   return items.length ? items : undefined
 }
 
+/** Parse an integer env var, or `undefined` when it is unset or not an integer. */
+function intEnv(raw: string | undefined): number | undefined {
+  return raw !== undefined && /^\s*[+-]?\d+\s*$/.test(raw) ? Number(raw) : undefined
+}
+
 /**
  * Read `~/.telem/credentials.json` (the file the installer writes) into
  * `{apiKey?, baseUrl?}`. It NEVER raises and NEVER prints: a library that writes to a
@@ -165,6 +170,9 @@ export function resolveConfig(options: string | TelemOptions): ResolvedConfig {
       providersInclude: opts.providersInclude ?? csvEnv(env.TELEM_PROVIDERS_INCLUDE),
       providersExclude: opts.providersExclude ?? csvEnv(env.TELEM_PROVIDERS_EXCLUDE),
       includeFullContent: opts.includeFullContent ?? (env.TELEM_FULL_CONTENT === "1" || undefined),
+      autoRouting: opts.autoRouting ?? (trimBlank(env.TELEM_AUTO_ROUTING ?? "") || undefined),
+      maxRoutingProviders: opts.maxRoutingProviders ?? intEnv(env.TELEM_MAX_ROUTING_PROVIDERS),
+      topic: opts.topic ?? (trimBlank(env.TELEM_TOPIC ?? "") || undefined),
     },
   }
 }

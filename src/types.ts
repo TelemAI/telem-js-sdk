@@ -79,6 +79,9 @@ export type SearchOptions = {
   numResults?: number
   includeRaw?: boolean
   includeFullContent?: boolean
+  autoRouting?: string
+  maxRoutingProviders?: number
+  topic?: string
   /** Opt this request into the server's rerank stage. It is the only path where
    *  `context`, the reasoning on the last assistant entry of the lineage history
    *  (that entry only), and `goal` change result ORDER (in that precedence) —
@@ -101,7 +104,14 @@ export type SearchOptions = {
  *  `numResults`/`includeRaw`/`rerank`/`providerOverrides` are per-call intent only. */
 export type SearchDefaults = Pick<
   SearchOptions,
-  "tier" | "fields" | "providersInclude" | "providersExclude" | "includeFullContent"
+  | "tier"
+  | "fields"
+  | "providersInclude"
+  | "providersExclude"
+  | "includeFullContent"
+  | "autoRouting"
+  | "maxRoutingProviders"
+  | "topic"
 >
 
 export type FetchOptions = {

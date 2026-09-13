@@ -69,6 +69,12 @@ function searchBlock(defaults: SearchDefaults, options: SearchOptions): Payload 
   if (options.includeRaw !== undefined) block.include_raw = options.includeRaw
   if (options.rerank !== undefined) block.rerank = options.rerank
   if (includeFullContent !== undefined) block.include_full_content = includeFullContent
+  const autoRouting = options.autoRouting ?? defaults.autoRouting
+  if (autoRouting !== undefined) block.auto_routing = autoRouting
+  const maxRoutingProviders = options.maxRoutingProviders ?? defaults.maxRoutingProviders
+  if (maxRoutingProviders !== undefined) block.max_routing_providers = maxRoutingProviders
+  const topic = options.topic ?? defaults.topic
+  if (topic !== undefined) block.topic = topic
   return block
 }
 
