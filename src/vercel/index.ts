@@ -92,7 +92,7 @@ export type TelemVercelAgentOptions = {
   incrementalState?: IncrementalState
 }
 
-export type TelemVercelSearchInput = { query: string; goal?: string; context?: string }
+export type TelemVercelSearchInput = { query: string; goal?: string; context?: string; topic?: string }
 export type TelemVercelFetchInput = { url: string; goal?: string }
 /** The default `render.search`: the top results, compact. */
 export type TelemVercelSearchOutput = Array<{ provider: string; title: string; url: string; summary: string | null }>
@@ -284,6 +284,12 @@ const SEARCH_SCHEMA = jsonSchema<TelemVercelSearchInput>({
         "Two or three sentences of your reasoning: what you want to find out and why, " +
         "given what you already know. Not a restatement of the query.",
     },
+    topic: {
+      type: "string",
+      description:
+        "Optional. Set it only when the answer must come from one site: linkedin, reddit, " +
+        "or x (twitter is also accepted). Leave it unset otherwise.",
+    },
   },
   required: ["query"],
   additionalProperties: false,
@@ -446,7 +452,7 @@ export function createTelemVercelAgent(options: TelemVercelAgentOptions): TelemV
     const opts: SearchOptions = { ...(searchOptions ?? {}), signal: signalFor(execution, searchOptions?.signal) }
     const { envelope, plan } = await lineage(execution, {
       name: SEARCH_TOOL,
-      input: { query, goal: opts.goal, context: opts.context },
+      input: { query, goal: opts.goal, context: opts.context, topic: opts.topic },
     })
     const response = await state.sendWithOmissionRetry(plan, () =>
       telem.search(query, withTrajectory(opts, envelope)),
@@ -519,8 +525,14 @@ export function createTelemVercelAgent(options: TelemVercelAgentOptions): TelemV
         "Search the public web. One query per call; returns the top results with provider, " +
         "title, url and summary. Use telem_fetch to read a page in full.",
       inputSchema: SEARCH_SCHEMA,
-      execute: async (input, execution) =>
-        renderSearch(await search(input.query, { goal: input.goal, context: input.context }, execution)),
+      execute: async (input, execution) => {
+        // The model's per-call topic, trimmed, beats TELEM_TOPIC. The routing mode is
+        // never taken from the model: it is the client's own configured mode.
+        const topic = input.topic?.trim() || undefined
+        return renderSearch(
+          await search(input.query, { goal: input.goal, context: input.context, topic }, execution),
+        )
+      },
     },
     telem_fetch: {
       description: "Read the text of one web page by URL. telem_search returns snippets; this returns the page.",
