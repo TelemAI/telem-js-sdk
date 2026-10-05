@@ -70,7 +70,9 @@ function searchBlock(defaults: SearchDefaults, options: SearchOptions): Payload 
   if (options.rerank !== undefined) block.rerank = options.rerank
   if (includeFullContent !== undefined) block.include_full_content = includeFullContent
   const autoRouting = options.autoRouting ?? defaults.autoRouting
-  if (autoRouting !== undefined) block.auto_routing = autoRouting
+  // "off" (any case) means do not route: the router answers 422 for it as a mode,
+  // and a per-call "off" also overrides a default mode.
+  if (autoRouting !== undefined && autoRouting.toLowerCase() !== "off") block.auto_routing = autoRouting
   const maxRoutingProviders = options.maxRoutingProviders ?? defaults.maxRoutingProviders
   if (maxRoutingProviders !== undefined) block.max_routing_providers = maxRoutingProviders
   const topic = options.topic ?? defaults.topic
