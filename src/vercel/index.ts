@@ -92,7 +92,14 @@ export type TelemVercelAgentOptions = {
   incrementalState?: IncrementalState
 }
 
-export type TelemVercelSearchInput = { query: string; goal?: string; context?: string; topic?: string }
+export type TelemVercelSearchInput = {
+  query: string
+  goal?: string
+  context?: string
+  topic?: string
+  published_after?: string
+  published_before?: string
+}
 export type TelemVercelFetchInput = { url: string; goal?: string }
 /** The default `render.search`: the top results, compact. */
 export type TelemVercelSearchOutput = Array<{ provider: string; title: string; url: string; summary: string | null }>
@@ -290,6 +297,22 @@ const SEARCH_SCHEMA = jsonSchema<TelemVercelSearchInput>({
         "Optional. Set it only when the answer must come from one site: linkedin, reddit, " +
         "or x (twitter is also accepted). Leave it unset otherwise.",
     },
+    published_after: {
+      type: "string",
+      description:
+        "Optional. Only return results published on or after this date or date-time, in ISO 8601 " +
+        "(for example 2026-10-01 or 2026-10-01T09:00:00Z). A value with no time zone is read as UTC. " +
+        "Results with no known publication date are kept. Set it only when the task needs sources " +
+        "from a time period; leave it unset otherwise.",
+    },
+    published_before: {
+      type: "string",
+      description:
+        "Optional. Only return results published before this date or date-time, in ISO 8601. A value " +
+        "with no time zone is read as UTC, and a date with no time includes that whole day. Results " +
+        "with no known publication date are kept. Set it only when the task needs sources from a " +
+        "time period; leave it unset otherwise.",
+    },
   },
   required: ["query"],
   additionalProperties: false,
@@ -452,7 +475,14 @@ export function createTelemVercelAgent(options: TelemVercelAgentOptions): TelemV
     const opts: SearchOptions = { ...(searchOptions ?? {}), signal: signalFor(execution, searchOptions?.signal) }
     const { envelope, plan } = await lineage(execution, {
       name: SEARCH_TOOL,
-      input: { query, goal: opts.goal, context: opts.context, topic: opts.topic },
+      input: {
+        query,
+        goal: opts.goal,
+        context: opts.context,
+        topic: opts.topic,
+        published_after: opts.publishedAfter,
+        published_before: opts.publishedBefore,
+      },
     })
     const response = await state.sendWithOmissionRetry(plan, () =>
       telem.search(query, withTrajectory(opts, envelope)),
@@ -527,10 +557,17 @@ export function createTelemVercelAgent(options: TelemVercelAgentOptions): TelemV
       inputSchema: SEARCH_SCHEMA,
       execute: async (input, execution) => {
         // The model's per-call topic, trimmed, beats TELEM_TOPIC. The routing mode is
-        // never taken from the model: it is the client's own configured mode.
+        // never taken from the model: it is the client's own configured mode. The
+        // publication window is per call only, trimmed the same way.
         const topic = input.topic?.trim() || undefined
+        const publishedAfter = input.published_after?.trim() || undefined
+        const publishedBefore = input.published_before?.trim() || undefined
         return renderSearch(
-          await search(input.query, { goal: input.goal, context: input.context, topic }, execution),
+          await search(
+            input.query,
+            { goal: input.goal, context: input.context, topic, publishedAfter, publishedBefore },
+            execution,
+          ),
         )
       },
     },

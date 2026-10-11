@@ -82,6 +82,14 @@ export type SearchOptions = {
   autoRouting?: string
   maxRoutingProviders?: number
   topic?: string
+  /** Only results published on or after this date or date-time: an ISO 8601 string
+   *  (no time zone means UTC) or a `Date`. Results with no known date are kept.
+   *  Per-call only, like the two below. */
+  publishedAfter?: string | Date
+  /** Only results published before this date or date-time. A date with no time
+   *  includes that whole day. A `Date` is an exact instant; pass a "YYYY-MM-DD"
+   *  string to include the whole day. */
+  publishedBefore?: string | Date
   /** Opt this request into the server's rerank stage. It is the only path where
    *  `context`, the reasoning on the last assistant entry of the lineage history
    *  (that entry only), and `goal` change result ORDER (in that precedence) —

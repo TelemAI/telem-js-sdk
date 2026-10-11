@@ -77,7 +77,14 @@ function searchBlock(defaults: SearchDefaults, options: SearchOptions): Payload 
   if (maxRoutingProviders !== undefined) block.max_routing_providers = maxRoutingProviders
   const topic = options.topic ?? defaults.topic
   if (topic !== undefined) block.topic = topic
+  if (options.publishedAfter !== undefined) block.published_after = isoDate(options.publishedAfter)
+  if (options.publishedBefore !== undefined) block.published_before = isoDate(options.publishedBefore)
   return block
+}
+
+/** A string goes as written (the server parses it); a `Date` goes as its UTC instant. */
+function isoDate(value: string | Date): string {
+  return typeof value === "string" ? value : value.toISOString()
 }
 
 /** `user_input` for one query or a batch. A batch runs as ONE interaction and the
