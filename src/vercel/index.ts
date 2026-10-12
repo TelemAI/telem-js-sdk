@@ -101,8 +101,15 @@ export type TelemVercelSearchInput = {
   published_before?: string
 }
 export type TelemVercelFetchInput = { url: string; goal?: string }
-/** The default `render.search`: the top results, compact. */
-export type TelemVercelSearchOutput = Array<{ provider: string; title: string; url: string; summary: string | null }>
+/** The default `render.search`: the top results, compact. `published` is there only
+ *  when the result has a publication date. */
+export type TelemVercelSearchOutput = Array<{
+  provider: string
+  title: string
+  url: string
+  summary: string | null
+  published?: string
+}>
 /** The default `render.fetch`: one page's status, error and text. */
 export type TelemVercelFetchOutput = { status: string | undefined; error: unknown; content: string }
 
@@ -262,7 +269,10 @@ async function turnAnchor(messages: readonly unknown[], windowId: string): Promi
 function compact(response: SearchResponse): TelemVercelSearchOutput {
   return response.results
     .slice(0, RESULT_CAP)
-    .map(({ provider, title, url, summary }) => ({ provider, title, url, summary }))
+    .map(({ provider, title, url, summary, publishDate }) => {
+      const published = publishDate?.trim()
+      return published ? { provider, title, url, summary, published } : { provider, title, url, summary }
+    })
 }
 
 function page(response: FetchResponse): TelemVercelFetchOutput {
@@ -553,7 +563,7 @@ export function createTelemVercelAgent(options: TelemVercelAgentOptions): TelemV
     telem_search: {
       description:
         "Search the public web. One query per call; returns the top results with provider, " +
-        "title, url and summary. Use telem_fetch to read a page in full.",
+        "title, url, summary and, when known, publication date. Use telem_fetch to read a page in full.",
       inputSchema: SEARCH_SCHEMA,
       execute: async (input, execution) => {
         // The model's per-call topic, trimmed, beats TELEM_TOPIC. The routing mode is
