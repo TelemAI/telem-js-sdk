@@ -285,3 +285,68 @@ export type SessionsResource = {
   list(): Promise<SessionSummary[]>
   results(sessionId: string): Promise<SessionResults>
 }
+
+// --------------------------------------------------------------------------- //
+// Monitors
+// --------------------------------------------------------------------------- //
+
+/** Options for `monitors.create`. */
+export type MonitorCreateOptions = {
+  /** One or more provider names, for example `["exa", "parallel"]`. */
+  providers: string[]
+  /** `"1h"`, `"6h"`, `"1d"` or `"7d"`. */
+  frequency: string
+  /** Per-provider create fields, keyed by provider name. */
+  providerOverrides?: Record<string, Json>
+  /** Request metadata (query lineage keys), sent as given. */
+  metadata?: Json
+  signal?: AbortSignal
+}
+
+/** Options for `monitors.update`. Send at least one of the three fields. */
+export type MonitorUpdateOptions = {
+  /** `"paused"` or `"active"`. */
+  status?: string
+  frequency?: string
+  /** New overrides for the providers named. They replace the ones sent before. */
+  providerOverrides?: Record<string, Json>
+  signal?: AbortSignal
+}
+
+/** Options for `monitors.poll`. */
+export type MonitorPollOptions = {
+  /** Record this poll in another session (default: the monitor's own). */
+  session?: string
+  /** Request metadata (query lineage keys), sent as given. */
+  metadata?: Json
+  signal?: AbortSignal
+}
+
+/** One provider of a monitor. `status` is `active`, `paused` (you paused it) or
+ *  `idle` (paused because nobody polled; the next poll resumes it). */
+export type MonitorProvider = {
+  name: string
+  status: string
+}
+
+/** A monitor: a query that providers run on a schedule. */
+export type Monitor = {
+  id: string
+  query: string
+  frequency: string
+  providers: MonitorProvider[]
+  sessionId: string
+  createdAt: string
+  lastPolledAt: string | null
+  raw: Json
+}
+
+/** The `telem.monitors` namespace. */
+export type MonitorsResource = {
+  create(query: string, options: MonitorCreateOptions): Promise<Monitor>
+  list(options?: { limit?: number; signal?: AbortSignal }): Promise<Monitor[]>
+  get(monitorId: string, options?: { signal?: AbortSignal }): Promise<Monitor>
+  update(monitorId: string, options: MonitorUpdateOptions): Promise<Monitor>
+  poll(monitorId: string, options?: MonitorPollOptions): Promise<SearchResponse>
+  delete(monitorId: string, options?: { signal?: AbortSignal }): Promise<void>
+}

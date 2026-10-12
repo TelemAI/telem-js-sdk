@@ -11,4 +11,5 @@ Also here:
 - `basic.ts` — the three client methods with error handling, against a real deployment.
 - `lineage.ts` — the hand-built lineage pattern with no framework and no network; runs in a fresh checkout.
 - `injected-fetch.ts` — the injectable transport, for edge runtimes and tests.
+- `monitor.mjs` — create a monitor, poll it for new results, delete it.
 - `openai-agents.mjs` — the same two approaches on the OpenAI Node SDK with a hand-rolled tool loop.

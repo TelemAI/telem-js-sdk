@@ -205,7 +205,7 @@ function providerRun(run: unknown): ProviderRun {
 /** Build a `SearchResponse` from a parsed `POST /v1/interactions` body. The flattened
  *  `results` list is the in-order concatenation of every provider's rows: providers in
  *  run order, rows in envelope order. */
-function buildSearchResponse(interaction: unknown): SearchResponse {
+export function buildSearchResponse(interaction: unknown): SearchResponse {
   const body = asObject(interaction)
   const byProvider = asArray(body.preprocessor_runs).map(providerRun)
   return {

@@ -6,12 +6,14 @@
 
 import { resolveConfig, type ResolvedConfig } from "./config.ts"
 import { fetchUrls } from "./methods/fetch.ts"
+import { createMonitors } from "./methods/monitors.ts"
 import { providers as listProviders } from "./methods/providers.ts"
 import { search as runSearch } from "./methods/search.ts"
 import { createSessions } from "./methods/sessions.ts"
 import type {
   FetchOptions,
   FetchResponse,
+  MonitorsResource,
   ProviderInfo,
   SearchOptions,
   SearchResponse,
@@ -43,6 +45,12 @@ export type {
   FetchResponse,
   FetchResult,
   Json,
+  Monitor,
+  MonitorCreateOptions,
+  MonitorPollOptions,
+  MonitorProvider,
+  MonitorsResource,
+  MonitorUpdateOptions,
   ProviderInfo,
   ProviderRun,
   SearchDefaults,
@@ -76,6 +84,8 @@ export class Telem {
   readonly maxRetries: number
   /** The session read surface: `list` and `results(id)`. */
   readonly sessions: SessionsResource
+  /** Monitors: `create`, `list`, `get`, `update`, `poll`, `delete`. */
+  readonly monitors: MonitorsResource
 
   readonly #config: ResolvedConfig
 
@@ -92,6 +102,7 @@ export class Telem {
     this.timeoutMs = config.timeoutMs
     this.maxRetries = config.maxRetries
     this.sessions = createSessions(config)
+    this.monitors = createMonitors(config)
   }
 
   /**

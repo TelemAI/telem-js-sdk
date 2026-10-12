@@ -198,6 +198,24 @@ console.log(summary.query, summary.goal, summary.context)
 `results` returns the query, the goal and the context of the session, plus the
 results of each search step.
 
+## Monitors
+
+A monitor runs a query on a schedule. Poll it to get the results that are new since
+your last poll. `poll` returns a `SearchResponse`:
+
+```ts
+const monitor = await telem.monitors.create("Nvidia files a new 8-K with the SEC", {
+  providers: ["exa", "parallel"],
+  frequency: "1h",
+})
+const response = await telem.monitors.poll(monitor.id)
+await telem.monitors.update(monitor.id, { status: "paused" })
+await telem.monitors.delete(monitor.id)
+```
+
+`telem.monitors` also has `get` and `list`. See [Monitors](https://docs.telem.ai/resources/monitors/)
+for the fields, the costs and the errors.
+
 ## Vercel AI SDK
 
 If your agent runs on the Vercel AI SDK, `@telemai/sdk/vercel` gives it

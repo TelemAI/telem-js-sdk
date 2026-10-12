@@ -1,6 +1,6 @@
 {
   "name": "@telemai/sdk",
-  "version": "0.2.4",
+  "version": "0.2.5",
   "description": "Telem web search and fetch for JavaScript and TypeScript.",
   "type": "module",
   "license": "Apache-2.0",

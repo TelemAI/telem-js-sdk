@@ -167,20 +167,24 @@ function retryDelay(retryAfter: string | null, attempt: number): number {
  * Send one request, retrying per the rules above, and return the parsed body.
  *
  * @param config - The client's resolved configuration.
- * @param method - `GET` or `POST`.
+ * @param method - The HTTP method.
  * @param path - Request path, joined onto the resolved base URL.
  * @param body - JSON request body; omitted entirely for a GET.
+ * @param retry - `"all"` (default) or `"rate_limit"`, which retries a 429 only.
  * @returns The parsed JSON body, or the raw text when it would not parse.
  * @throws TimeoutError when the request was still outstanding at the timeout.
  * @throws TelemError on any non-2xx response or transport failure.
  */
 export async function request(
   config: ResolvedConfig,
-  method: "GET" | "POST",
+  method: "GET" | "POST" | "PATCH" | "DELETE",
   path: string,
   body?: unknown,
   /** The caller's abort signal: aborts the attempt, skips the retry, rejects with its reason. */
   abort?: AbortSignal,
+  /** `"rate_limit"` retries a 429 only: for a POST that is not safe to send twice,
+   *  where a lost reply or a 5xx may mean the server already did the work. */
+  retry: "all" | "rate_limit" = "all",
 ): Promise<unknown> {
   const url = `${config.baseUrl}/${path.replace(/^\/+/, "")}`
   const headers: Record<string, string> = { "User-Agent": config.userAgent }
@@ -275,7 +279,7 @@ export async function request(
       if (signal?.aborted) {
         throw new TimeoutError(`request to ${url} timed out after ${config.timeoutMs}ms`, cause)
       }
-      if (attempt >= config.maxRetries) throw connectionError(url, cause)
+      if (retry === "rate_limit" || attempt >= config.maxRetries) throw connectionError(url, cause)
       await pause(backoff(attempt))
       continue
     } finally {
@@ -284,7 +288,8 @@ export async function request(
 
     // The whole 2xx range is success; only the search version gate may reject one.
     if (received.status >= 200 && received.status < 300) return received.body
-    if (isRetryable(received.status) && attempt < config.maxRetries) {
+    const retryable = retry === "rate_limit" ? received.status === 429 : isRetryable(received.status)
+    if (retryable && attempt < config.maxRetries) {
       await pause(retryDelay(received.retryAfter, attempt))
       continue
     }

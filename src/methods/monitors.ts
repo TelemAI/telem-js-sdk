@@ -1,0 +1,92 @@
+// monitors: a query that providers run on a schedule, read back with `poll`.
+// Python twin: telem/resources/monitors.py.
+//
+// A poll answers with the search response shape, read by the search parser. It
+// echoes no `normalized_schema_version`, so the search version gate does not run.
+
+import type { ResolvedConfig } from "../config.ts"
+import { asArray, asObject, invalidRequest, isObject, request, type Payload } from "../http.ts"
+import type { Monitor, MonitorsResource } from "../types.ts"
+import { buildSearchResponse } from "./search.ts"
+
+function monitorFrom(body: unknown): Monitor {
+  const data = asObject(body)
+  return {
+    id: String(data.id ?? ""),
+    query: data.query ?? "",
+    frequency: data.frequency ?? "",
+    providers: asArray(data.providers)
+      .filter(isObject)
+      .map((p: Payload) => ({ name: String(p.name ?? ""), status: String(p.status ?? "") })),
+    sessionId: String(data.session_id ?? ""),
+    createdAt: data.created_at ?? "",
+    lastPolledAt: data.last_polled_at ?? null,
+    raw: data,
+  }
+}
+
+/** Bind the monitors resource to one client's configuration. */
+export function createMonitors(config: ResolvedConfig): MonitorsResource {
+  // Encoded, and all-dots ids refused, for the same reason as the sessions path.
+  const path = (monitorId: string, suffix = "") => {
+    if (!monitorId || /^\.+$/.test(monitorId)) throw invalidRequest("a monitor id is required")
+    return `/v1/monitors/${encodeURIComponent(monitorId)}${suffix}`
+  }
+
+  return {
+    /** Create a monitor. Each provider runs `query` on the schedule. */
+    async create(query, options) {
+      const body: Payload = {
+        query,
+        options: { providers: { include: options.providers }, frequency: options.frequency },
+      }
+      if (options.providerOverrides !== undefined) {
+        body.options.provider_overrides = options.providerOverrides
+      }
+      if (options.metadata !== undefined) body.metadata = options.metadata
+      // A retry after a lost reply would create a second, billed monitor. Only a 429
+      // is safe: the router created nothing then.
+      const data = await request(config, "POST", "/v1/monitors", body, options.signal, "rate_limit")
+      return monitorFrom(data)
+    },
+
+    /** List your monitors, newest first (server default 50, maximum 200). */
+    async list(options = {}) {
+      const query = options.limit === undefined ? "" : `?limit=${options.limit}`
+      const body = await request(config, "GET", `/v1/monitors${query}`, undefined, options.signal)
+      return asArray(asObject(body).monitors).map(monitorFrom)
+    },
+
+    /** Get one monitor. */
+    async get(monitorId, options = {}) {
+      return monitorFrom(await request(config, "GET", path(monitorId), undefined, options.signal))
+    },
+
+    /** Pause, resume or change a monitor. Only the fields given are sent. */
+    async update(monitorId, options) {
+      const body: Payload = {}
+      if (options.status !== undefined) body.status = options.status
+      if (options.frequency !== undefined) body.frequency = options.frequency
+      if (options.providerOverrides !== undefined) body.provider_overrides = options.providerOverrides
+      const route = path(monitorId)
+      return monitorFrom(await request(config, "PATCH", route, body, options.signal))
+    },
+
+    /** Get the results that are new since the last poll, one entry per provider. */
+    async poll(monitorId, options = {}) {
+      const body: Payload = {}
+      if (options.session !== undefined) body.session_id = options.session
+      if (options.metadata !== undefined) body.metadata = options.metadata
+      const route = path(monitorId, "/poll")
+      // A poll moves the monitor past the results it returns, so a retry after a lost
+      // reply would return nothing new. Only a 429 is safe: no provider was read then.
+      const data = await request(config, "POST", route, body, options.signal, "rate_limit")
+      return buildSearchResponse(data)
+    },
+
+    /** Delete a monitor. A repeat deletes what a failed delete left. */
+    async delete(monitorId, options = {}) {
+      await request(config, "DELETE", path(monitorId), undefined, options.signal)
+    },
+  }
+}
