@@ -22,6 +22,7 @@ import type {
 } from "./types.ts"
 
 export { TelemError, TimeoutError } from "./errors.ts"
+export { verifyWebhook } from "./methods/monitors.ts"
 export type { TelemClientErrorCode, TelemErrorOptions } from "./errors.ts"
 // Trajectory-v5 identity helpers — public so an integration can derive an envelope
 // and thread it onto a call. `withTrajectory` is the seam; the reserved `TRAJECTORY`

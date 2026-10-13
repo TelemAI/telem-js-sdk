@@ -300,16 +300,20 @@ export type MonitorCreateOptions = {
   providerOverrides?: Record<string, Json>
   /** Request metadata (query lineage keys), sent as given. */
   metadata?: Json
+  /** An `https` URL that receives the new results. */
+  webhookUrl?: string
   signal?: AbortSignal
 }
 
-/** Options for `monitors.update`. Send at least one of the three fields. */
+/** Options for `monitors.update`. Send at least one field. */
 export type MonitorUpdateOptions = {
   /** `"paused"` or `"active"`. */
   status?: string
   frequency?: string
   /** New overrides for the providers named. They replace the ones sent before. */
   providerOverrides?: Record<string, Json>
+  /** A new webhook URL, with a new `webhookSecret` in the response. `null` removes it. */
+  webhookUrl?: string | null
   signal?: AbortSignal
 }
 
@@ -338,6 +342,9 @@ export type Monitor = {
   sessionId: string
   createdAt: string
   lastPolledAt: string | null
+  webhookUrl: string | null
+  /** Signs the webhook deliveries. Only in the response that set `webhookUrl`. */
+  webhookSecret: string | null
   raw: Json
 }
 

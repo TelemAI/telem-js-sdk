@@ -21,6 +21,8 @@ function monitorFrom(body: unknown): Monitor {
     sessionId: String(data.session_id ?? ""),
     createdAt: data.created_at ?? "",
     lastPolledAt: data.last_polled_at ?? null,
+    webhookUrl: data.webhook_url ?? null,
+    webhookSecret: data.webhook_secret ?? null,
     raw: data,
   }
 }
@@ -44,6 +46,7 @@ export function createMonitors(config: ResolvedConfig): MonitorsResource {
         body.options.provider_overrides = options.providerOverrides
       }
       if (options.metadata !== undefined) body.metadata = options.metadata
+      if (options.webhookUrl !== undefined) body.webhook_url = options.webhookUrl
       // A retry after a lost reply would create a second, billed monitor. Only a 429
       // is safe: the router created nothing then.
       const data = await request(config, "POST", "/v1/monitors", body, options.signal, "rate_limit")
@@ -68,6 +71,7 @@ export function createMonitors(config: ResolvedConfig): MonitorsResource {
       if (options.status !== undefined) body.status = options.status
       if (options.frequency !== undefined) body.frequency = options.frequency
       if (options.providerOverrides !== undefined) body.provider_overrides = options.providerOverrides
+      if (options.webhookUrl !== undefined) body.webhook_url = options.webhookUrl
       const route = path(monitorId)
       return monitorFrom(await request(config, "PATCH", route, body, options.signal))
     },
@@ -89,4 +93,32 @@ export function createMonitors(config: ResolvedConfig): MonitorsResource {
       await request(config, "DELETE", path(monitorId), undefined, options.signal)
     },
   }
+}
+
+/**
+ * Check a monitor webhook: the `Telem-Signature` header against the raw body.
+ * True when the signature is correct and not older than `toleranceSeconds`.
+ */
+export async function verifyWebhook(
+  body: string | Uint8Array,
+  header: string,
+  secret: string,
+  toleranceSeconds = 300,
+): Promise<boolean> {
+  const parts = Object.fromEntries(
+    header.split(",").map((item) => [item.slice(0, item.indexOf("=")), item.slice(item.indexOf("=") + 1)]),
+  )
+  const t = parts.t ?? ""
+  const v1 = parts.v1 ?? ""
+  if (!/^\d+$/.test(t) || Math.abs(Date.now() / 1000 - Number(t)) > toleranceSeconds) return false
+  if (!/^([0-9a-f]{2})+$/.test(v1)) return false
+  const encoder = new TextEncoder()
+  const raw = typeof body === "string" ? encoder.encode(body) : body
+  const signed = new Uint8Array([...encoder.encode(`${t}.`), ...raw])
+  const key = await crypto.subtle.importKey("raw", encoder.encode(secret), { name: "HMAC", hash: "SHA-256" }, false, [
+    "verify",
+  ])
+  const signature = new Uint8Array(v1.match(/../g)!.map((byte) => parseInt(byte, 16)))
+  // `verify` compares in constant time.
+  return crypto.subtle.verify("HMAC", key, signature, signed)
 }
