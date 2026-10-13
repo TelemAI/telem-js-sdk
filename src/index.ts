@@ -49,7 +49,6 @@ export type {
   Monitor,
   MonitorCreateOptions,
   MonitorPollOptions,
-  MonitorProvider,
   MonitorsResource,
   MonitorUpdateOptions,
   ProviderInfo,

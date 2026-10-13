@@ -1,11 +1,11 @@
-// monitors: a query that providers run on a schedule, read back with `poll`.
+// monitors: a query that Telem runs on a schedule, read back with `poll`.
 // Python twin: telem/resources/monitors.py.
 //
 // A poll answers with the search response shape, read by the search parser. It
 // echoes no `normalized_schema_version`, so the search version gate does not run.
 
 import type { ResolvedConfig } from "../config.ts"
-import { asArray, asObject, invalidRequest, isObject, request, type Payload } from "../http.ts"
+import { asArray, asObject, invalidRequest, request, type Payload } from "../http.ts"
 import type { Monitor, MonitorsResource } from "../types.ts"
 import { buildSearchResponse } from "./search.ts"
 
@@ -15,9 +15,7 @@ function monitorFrom(body: unknown): Monitor {
     id: String(data.id ?? ""),
     query: data.query ?? "",
     frequency: data.frequency ?? "",
-    providers: asArray(data.providers)
-      .filter(isObject)
-      .map((p: Payload) => ({ name: String(p.name ?? ""), status: String(p.status ?? "") })),
+    status: String(data.status ?? ""),
     sessionId: String(data.session_id ?? ""),
     createdAt: data.created_at ?? "",
     lastPolledAt: data.last_polled_at ?? null,
@@ -36,15 +34,9 @@ export function createMonitors(config: ResolvedConfig): MonitorsResource {
   }
 
   return {
-    /** Create a monitor. Each provider runs `query` on the schedule. */
+    /** Create a monitor. Telem runs `query` on the schedule. */
     async create(query, options) {
-      const body: Payload = {
-        query,
-        options: { providers: { include: options.providers }, frequency: options.frequency },
-      }
-      if (options.providerOverrides !== undefined) {
-        body.options.provider_overrides = options.providerOverrides
-      }
+      const body: Payload = { query, options: { frequency: options.frequency } }
       if (options.metadata !== undefined) body.metadata = options.metadata
       if (options.webhookUrl !== undefined) body.webhook_url = options.webhookUrl
       // A retry after a lost reply would create a second, billed monitor. Only a 429
@@ -70,7 +62,6 @@ export function createMonitors(config: ResolvedConfig): MonitorsResource {
       const body: Payload = {}
       if (options.status !== undefined) body.status = options.status
       if (options.frequency !== undefined) body.frequency = options.frequency
-      if (options.providerOverrides !== undefined) body.provider_overrides = options.providerOverrides
       if (options.webhookUrl !== undefined) body.webhook_url = options.webhookUrl
       const route = path(monitorId)
       return monitorFrom(await request(config, "PATCH", route, body, options.signal))

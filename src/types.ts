@@ -292,12 +292,8 @@ export type SessionsResource = {
 
 /** Options for `monitors.create`. */
 export type MonitorCreateOptions = {
-  /** One or more provider names, for example `["exa", "parallel"]`. */
-  providers: string[]
   /** `"1h"`, `"6h"`, `"1d"` or `"7d"`. */
   frequency: string
-  /** Per-provider create fields, keyed by provider name. */
-  providerOverrides?: Record<string, Json>
   /** Request metadata (query lineage keys), sent as given. */
   metadata?: Json
   /** An `https` URL that receives the new results. */
@@ -310,8 +306,6 @@ export type MonitorUpdateOptions = {
   /** `"paused"` or `"active"`. */
   status?: string
   frequency?: string
-  /** New overrides for the providers named. They replace the ones sent before. */
-  providerOverrides?: Record<string, Json>
   /** A new webhook URL, with a new `webhookSecret` in the response. `null` removes it. */
   webhookUrl?: string | null
   signal?: AbortSignal
@@ -326,19 +320,13 @@ export type MonitorPollOptions = {
   signal?: AbortSignal
 }
 
-/** One provider of a monitor. `status` is `active`, `paused` (you paused it) or
- *  `idle` (paused because nobody polled; the next poll resumes it). */
-export type MonitorProvider = {
-  name: string
-  status: string
-}
-
-/** A monitor: a query that providers run on a schedule. */
+/** A monitor: a query that Telem runs on a schedule. */
 export type Monitor = {
   id: string
   query: string
   frequency: string
-  providers: MonitorProvider[]
+  /** `active` or `paused` (you paused it). */
+  status: string
   sessionId: string
   createdAt: string
   lastPolledAt: string | null
