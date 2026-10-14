@@ -19,6 +19,7 @@ function monitorFrom(body: unknown): Monitor {
     sessionId: String(data.session_id ?? ""),
     createdAt: data.created_at ?? "",
     lastPolledAt: data.last_polled_at ?? null,
+    expiresAt: data.expires_at ?? null,
     webhookUrl: data.webhook_url ?? null,
     webhookSecret: data.webhook_secret ?? null,
     raw: data,
@@ -39,6 +40,7 @@ export function createMonitors(config: ResolvedConfig): MonitorsResource {
       const body: Payload = { query, options: { frequency: options.frequency } }
       if (options.metadata !== undefined) body.metadata = options.metadata
       if (options.webhookUrl !== undefined) body.webhook_url = options.webhookUrl
+      if (options.ttl !== undefined) body.ttl = options.ttl
       // A retry after a lost reply would create a second, billed monitor. Only a 429
       // is safe: the router created nothing then.
       const data = await request(config, "POST", "/v1/monitors", body, options.signal, "rate_limit")

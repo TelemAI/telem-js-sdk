@@ -298,6 +298,8 @@ export type MonitorCreateOptions = {
   metadata?: Json
   /** An `https` URL that receives the new results. */
   webhookUrl?: string
+  /** Delete the monitor after this long, such as `"12h"` or `"7d"` (at most `"30d"`). Without it, the monitor never expires. */
+  ttl?: string
   signal?: AbortSignal
 }
 
@@ -330,6 +332,8 @@ export type Monitor = {
   sessionId: string
   createdAt: string
   lastPolledAt: string | null
+  /** When Telem deletes the monitor; `null`: never. */
+  expiresAt: string | null
   webhookUrl: string | null
   /** Signs the webhook deliveries. Only in the response that set `webhookUrl`. */
   webhookSecret: string | null

@@ -204,7 +204,7 @@ A monitor runs a query on a schedule. Poll it to get the results that are new si
 your last poll. `poll` returns a `SearchResponse`:
 
 ```ts
-const monitor = await telem.monitors.create("Nvidia files a new 8-K with the SEC", { frequency: "1h" })
+const monitor = await telem.monitors.create("Nvidia files a new 8-K with the SEC", { frequency: "1h", ttl: "7d" })
 const response = await telem.monitors.poll(monitor.id)
 await telem.monitors.update(monitor.id, { status: "paused" })
 await telem.monitors.delete(monitor.id)
