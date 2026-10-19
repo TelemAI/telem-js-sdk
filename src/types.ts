@@ -90,6 +90,9 @@ export type SearchOptions = {
    *  includes that whole day. A `Date` is an exact instant; pass a "YYYY-MM-DD"
    *  string to include the whole day. */
   publishedBefore?: string | Date
+  /** Only results from these domains: at most 20 hostnames such as `"linkedin.com"`.
+   *  A subdomain such as `"uk.linkedin.com"` matches its domain. Per-call only. */
+  includeDomains?: string[]
   /** Opt this request into the server's rerank stage. It is the only path where
    *  `context`, the reasoning on the last assistant entry of the lineage history
    *  (that entry only), and `goal` change result ORDER (in that precedence) —
@@ -290,10 +293,19 @@ export type SessionsResource = {
 // Monitors
 // --------------------------------------------------------------------------- //
 
+/** The search options a monitor can run on its schedule (`MonitorCreateOptions.search`). */
+export type MonitorSearchOptions = Pick<SearchOptions, "tier" | "numResults">
+
 /** Options for `monitors.create`. */
 export type MonitorCreateOptions = {
-  /** `"1h"`, `"6h"`, `"1d"` or `"7d"`. */
-  frequency: string
+  /** `"1h"`, `"6h"`, `"12h"`, `"1d"` or `"7d"`. If you leave it out, the monitor runs once a day. */
+  frequency?: string
+  /** Also run a web search for the query on the schedule, with these options. `{}`
+   *  uses the defaults. Client search defaults do not apply. */
+  search?: MonitorSearchOptions
+  /** Only results from these sites and their subdomains, such as `["sec.gov"]`,
+   *  from every source of the monitor. */
+  includeDomains?: string[]
   /** Request metadata (query lineage keys), sent as given. */
   metadata?: Json
   /** An `https` URL that receives the new results. */
@@ -342,7 +354,7 @@ export type Monitor = {
 
 /** The `telem.monitors` namespace. */
 export type MonitorsResource = {
-  create(query: string, options: MonitorCreateOptions): Promise<Monitor>
+  create(query: string, options?: MonitorCreateOptions): Promise<Monitor>
   list(options?: { limit?: number; signal?: AbortSignal }): Promise<Monitor[]>
   get(monitorId: string, options?: { signal?: AbortSignal }): Promise<Monitor>
   update(monitorId: string, options: MonitorUpdateOptions): Promise<Monitor>

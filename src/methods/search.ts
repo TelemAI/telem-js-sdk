@@ -36,7 +36,7 @@ const MIN_SCHEMA_VERSION = 2
  *    excluded names are subtracted here and `exclude` is not sent. An include emptied
  *    by that subtraction is still sent, as `[]`, so the server's own 400 fires.
  */
-function searchBlock(defaults: SearchDefaults, options: SearchOptions): Payload {
+export function searchBlock(defaults: SearchDefaults, options: SearchOptions): Payload {
   const fromCallTier = options.tier !== undefined
   const fromCallFields = options.fields !== undefined
   let tier = fromCallTier ? options.tier : defaults.tier
@@ -79,6 +79,7 @@ function searchBlock(defaults: SearchDefaults, options: SearchOptions): Payload 
   if (topic !== undefined) block.topic = topic
   if (options.publishedAfter !== undefined) block.published_after = isoDate(options.publishedAfter)
   if (options.publishedBefore !== undefined) block.published_before = isoDate(options.publishedBefore)
+  if (options.includeDomains !== undefined) block.include_domains = options.includeDomains
   return block
 }
 

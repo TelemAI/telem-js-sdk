@@ -7,7 +7,7 @@
 import type { ResolvedConfig } from "../config.ts"
 import { asArray, asObject, invalidRequest, request, type Payload } from "../http.ts"
 import type { Monitor, MonitorsResource } from "../types.ts"
-import { buildSearchResponse } from "./search.ts"
+import { buildSearchResponse, searchBlock } from "./search.ts"
 
 function monitorFrom(body: unknown): Monitor {
   const data = asObject(body)
@@ -36,8 +36,14 @@ export function createMonitors(config: ResolvedConfig): MonitorsResource {
 
   return {
     /** Create a monitor. Telem runs `query` on the schedule. */
-    async create(query, options) {
-      const body: Payload = { query, options: { frequency: options.frequency } }
+    async create(query, options = {}) {
+      const monitorOptions: Payload = {}
+      if (options.frequency !== undefined) monitorOptions.frequency = options.frequency
+      if (options.includeDomains !== undefined) {
+        monitorOptions.include_domains = options.includeDomains
+      }
+      if (options.search !== undefined) monitorOptions.search = searchBlock({}, options.search)
+      const body: Payload = { query, options: monitorOptions }
       if (options.metadata !== undefined) body.metadata = options.metadata
       if (options.webhookUrl !== undefined) body.webhook_url = options.webhookUrl
       if (options.ttl !== undefined) body.ttl = options.ttl
@@ -69,7 +75,7 @@ export function createMonitors(config: ResolvedConfig): MonitorsResource {
       return monitorFrom(await request(config, "PATCH", route, body, options.signal))
     },
 
-    /** Get the results that are new since the last poll, one entry per provider. */
+    /** Get the results that are new since the last poll. */
     async poll(monitorId, options = {}) {
       const body: Payload = {}
       if (options.session !== undefined) body.session_id = options.session
