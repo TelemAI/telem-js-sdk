@@ -167,6 +167,13 @@ const page = await telem.fetch("https://example.com/article", {
 const { status, content } = page.results[0]
 ```
 
+`providers` pins the fetch providers, in order; `tier` picks the fetch tier; and
+`noCache: true` reads the page live instead of from the shared cache. If you leave
+one out, the client uses its environment variable: `TELEM_FETCH_PROVIDERS` (comma
+separated), `TELEM_FETCH_TIER` (lowercased) or `TELEM_FETCH_NO_CACHE` (`1` turns it
+on). The client reads them when you create it. An option you pass wins, so
+`noCache: false` turns off `TELEM_FETCH_NO_CACHE=1` for that call.
+
 A URL that failed still returns a result. Check `result.status` and `result.error`.
 Do not expect a shorter list. The options are on the
 [fetch parameters](https://docs.telem.ai/resources/fetch-parameters/) page.

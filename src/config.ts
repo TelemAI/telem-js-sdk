@@ -8,7 +8,7 @@
 // SDK's ONE config file, and it holds credentials only.
 
 import { TelemError } from "./errors.ts"
-import type { SearchDefaults, TelemOptions } from "./types.ts"
+import type { FetchOptions, SearchDefaults, TelemOptions } from "./types.ts"
 import { VERSION } from "./version.ts"
 
 /** The hosted deployment. A default, not a requirement — an ordinary user should not
@@ -32,6 +32,8 @@ export type ResolvedConfig = {
   fetch: typeof globalThis.fetch
   sleep: (ms: number) => Promise<void>
   defaults: SearchDefaults
+  /** `fetch` defaults from `TELEM_FETCH_*` only; a `fetch` option wins per key. */
+  fetchDefaults: Pick<FetchOptions, "providers" | "tier" | "noCache">
 }
 
 // The blank list shared with the config-core option table and the Python SDK's _config_files.py: a
@@ -173,6 +175,14 @@ export function resolveConfig(options: string | TelemOptions): ResolvedConfig {
       autoRouting: opts.autoRouting ?? (trimBlank(env.TELEM_AUTO_ROUTING ?? "") || undefined),
       maxRoutingProviders: opts.maxRoutingProviders ?? intEnv(env.TELEM_MAX_ROUTING_PROVIDERS),
       topic: opts.topic ?? (trimBlank(env.TELEM_TOPIC ?? "") || undefined),
+    },
+    // Fetch defaults: env var only, parsed as the shared option table parses it (CSV,
+    // a trimmed name, a "1"-only flag); the tier is lowercased, as the agent plugins
+    // send it. No constructor option, and no config file, as above.
+    fetchDefaults: {
+      providers: csvEnv(env.TELEM_FETCH_PROVIDERS),
+      tier: trimBlank(env.TELEM_FETCH_TIER ?? "").toLowerCase() || undefined,
+      noCache: env.TELEM_FETCH_NO_CACHE === "1" || undefined,
     },
   }
 }

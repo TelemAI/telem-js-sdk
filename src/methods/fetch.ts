@@ -15,7 +15,11 @@ import type { FetchOptions, FetchResponse, FetchResult } from "../types.ts"
  *  `options` block, and no `max_urls` knob — the server cap is the cap. URLs are not
  *  pre-validated beyond shape: a non-http(s) item and an over-cap batch are the
  *  server's 400s. Lineage and the session id follow `wireMetadata`. */
-function fetchBody(url: string | string[], options: FetchOptions): Payload {
+function fetchBody(
+  url: string | string[],
+  options: FetchOptions,
+  defaults: ResolvedConfig["fetchDefaults"],
+): Payload {
   // A bare string is ONE url, never a batch of characters.
   const urls = stringList(
     typeof url === "string" ? [url] : url,
@@ -24,11 +28,17 @@ function fetchBody(url: string | string[], options: FetchOptions): Payload {
   )
   const { metadata, sessionId } = wireMetadata(options, "fetch")
   const body: Payload = { urls, metadata }
+  // An option left `undefined` falls back to the client's `TELEM_FETCH_*` default.
+  const providers = options.providers ?? defaults.providers
+  const tier = options.tier ?? defaults.tier
+  const noCache = options.noCache ?? defaults.noCache
   const block: Payload = {}
-  if (options.providers !== undefined) block.providers = options.providers
+  if (providers !== undefined) block.providers = providers
   if (options.inlineContent !== undefined) block.inline_content = options.inlineContent
   if (options.inlineMaxChars !== undefined) block.inline_max_chars = options.inlineMaxChars
   if (options.contentFormat !== undefined) block.content_format = options.contentFormat
+  if (tier !== undefined) block.tier = tier
+  if (noCache !== undefined) block.no_cache = noCache
   if (Object.keys(block).length) body.options = block
   if (sessionId !== undefined) body.session_id = sessionId
   return body
@@ -98,6 +108,6 @@ export async function fetchUrls(
   url: string | string[],
   options: FetchOptions,
 ): Promise<FetchResponse> {
-  const body = fetchBody(url, options)
+  const body = fetchBody(url, options, config.fetchDefaults)
   return buildFetchResponse(await request(config, "POST", "/v1/fetch", body, options.signal))
 }

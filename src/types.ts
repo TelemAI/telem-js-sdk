@@ -126,10 +126,17 @@ export type SearchDefaults = Pick<
 >
 
 export type FetchOptions = {
+  /** Fetch provider chain, in order. Defaults to `TELEM_FETCH_PROVIDERS`. */
   providers?: string[]
   inlineContent?: boolean
   inlineMaxChars?: number
   contentFormat?: string
+  /** Fetch tier: `minimalist`, `default`, `extended` or `max`. Sent as given; the
+   *  server rejects an unknown one. Defaults to `TELEM_FETCH_TIER`, lowercased. */
+  tier?: string
+  /** `true` reads every page live and skips the shared fetch cache. Defaults to
+   *  `TELEM_FETCH_NO_CACHE` (on with exactly `"1"`); `false` overrides it. */
+  noCache?: boolean
   session?: string
   /** Abort this call: the request stops, no retry follows, and the call rejects
    *  with the signal's reason. Merged with the per-attempt timeout. */
