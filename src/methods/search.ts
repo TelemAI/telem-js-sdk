@@ -34,8 +34,22 @@ const MIN_SCHEMA_VERSION = 2
  *    come from the same level `fields` wins. The block never carries both.
  * 2. When both provider halves resolve, `include` fully determines the set: the
  *    excluded names are subtracted here and `exclude` is not sent. An include emptied
- *    by that subtraction is still sent, as `[]`, so the server's own 400 fires.
+ *    by that subtraction throws before anything is sent: no provider is left, and the
+ *    deployment's default set could hold an excluded one.
  */
+/** The message for an include that exclude empties: where each list was set. */
+function providersRefusal(include: string[], includeFromCall: boolean, excludeFromCall: boolean): string {
+  const where = (half: "providersInclude" | "providersExclude", env: string, fromCall: boolean) =>
+    fromCall ? `the ${half} search() option` : `the client's ${half} or ${env}`
+  const names = include.join(", ")
+  return (
+    `providersExclude removes every provider in providersInclude (${names}), so no provider is ` +
+    `left and no search was sent. Remove ${names} from providersInclude (set by ` +
+    `${where("providersInclude", "TELEM_PROVIDERS_INCLUDE", includeFromCall)}) or from providersExclude ` +
+    `(set by ${where("providersExclude", "TELEM_PROVIDERS_EXCLUDE", excludeFromCall)}).`
+  )
+}
+
 export function searchBlock(defaults: SearchDefaults, options: SearchOptions): Payload {
   const fromCallTier = options.tier !== undefined
   const fromCallFields = options.fields !== undefined
@@ -50,7 +64,13 @@ export function searchBlock(defaults: SearchDefaults, options: SearchOptions): P
   let exclude = options.providersExclude ?? defaults.providersExclude
   if (include !== undefined && exclude !== undefined) {
     const excluded = new Set(exclude)
-    include = include.filter((name) => !excluded.has(name))
+    const kept = include.filter((name) => !excluded.has(name))
+    if (include.length && !kept.length) {
+      throw invalidRequest(
+        providersRefusal(include, options.providersInclude !== undefined, options.providersExclude !== undefined),
+      )
+    }
+    include = kept
     exclude = undefined
   }
 
