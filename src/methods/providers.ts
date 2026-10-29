@@ -25,5 +25,6 @@ export async function providers(config: ResolvedConfig): Promise<ProviderInfo[]>
     url: entry.url ?? null,
     normalized: entry.normalized ?? false,
     tiers: asArray(entry.tiers),
+    autoRouted: entry.auto_routed ?? null,
   }))
 }
