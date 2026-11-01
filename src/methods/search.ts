@@ -220,6 +220,7 @@ function providerRun(run: unknown): ProviderRun {
     verticals: envelope.verticals ?? null,
     usage: envelope.usage ?? null,
     warnings: asArray(envelope.warnings),
+    sameStory: isObject(envelope.same_story) ? envelope.same_story : null,
   }
 }
 

@@ -135,6 +135,7 @@ export function resolveConfig(options: string | TelemOptions): ResolvedConfig {
   // Credentials: argument, else env var, else the credentials file — read ONLY when
   // something is still unresolved, per key, so a fully-configured caller (and every
   // caller on a runtime with no filesystem) never touches the disk.
+  if (typeof opts.apiKey === "string" && !opts.apiKey.trim()) throw invalidOption("apiKey is empty")
   let apiKey = opts.apiKey || env.TELEM_API_KEY || undefined
   let baseUrl = opts.baseUrl || env.TELEM_BASE_URL || undefined
   if (apiKey === undefined || baseUrl === undefined) {

@@ -5,6 +5,7 @@
 // echoes no `normalized_schema_version`, so the search version gate does not run.
 
 import type { ResolvedConfig } from "../config.ts"
+import { TimeoutError } from "../errors.ts"
 import { asArray, asObject, invalidRequest, request, type Payload } from "../http.ts"
 import type { Monitor, MonitorsResource } from "../types.ts"
 import { buildSearchResponse, searchBlock } from "./search.ts"
@@ -49,7 +50,18 @@ export function createMonitors(config: ResolvedConfig): MonitorsResource {
       if (options.ttl !== undefined) body.ttl = options.ttl
       // A retry after a lost reply would create a second, billed monitor. Only a 429
       // is safe: the router created nothing then.
-      const data = await request(config, "POST", "/v1/monitors", body, options.signal, "rate_limit")
+      const data = await request(config, "POST", "/v1/monitors", body, options.signal, "rate_limit").catch(
+        (error: unknown) => {
+          // The router may have made the monitor before the client gave up.
+          if (error instanceof TimeoutError) {
+            throw new TimeoutError(
+              `${error.message}. The monitor may exist: list monitors before you create it again.`,
+              error.cause,
+            )
+          }
+          throw error
+        },
+      )
       return monitorFrom(data)
     },
 
@@ -70,7 +82,8 @@ export function createMonitors(config: ResolvedConfig): MonitorsResource {
       const body: Payload = {}
       if (options.status !== undefined) body.status = options.status
       if (options.frequency !== undefined) body.frequency = options.frequency
-      if (options.webhookUrl !== undefined) body.webhook_url = options.webhookUrl
+      // "" removes the webhook, as `null` does and as in the Python SDK.
+      if (options.webhookUrl !== undefined) body.webhook_url = options.webhookUrl || null
       const route = path(monitorId)
       return monitorFrom(await request(config, "PATCH", route, body, options.signal))
     },

@@ -201,6 +201,8 @@ export type ProviderRun = {
   verticals: Json | null
   usage: Json | unknown[] | null
   warnings: Json[]
+  /** Monitor polls: results folded as the same story, `{leadUrl: [{url, title}]}`. */
+  sameStory: Record<string, Json[]> | null
   raw: Json | null
 }
 
@@ -329,7 +331,7 @@ export type MonitorUpdateOptions = {
   /** `"paused"` or `"active"`. */
   status?: string
   frequency?: string
-  /** A new webhook URL, with a new `webhookSecret` in the response. `null` removes it. */
+  /** A new webhook URL, with a new `webhookSecret` in the response. `null` or `""` removes it. */
   webhookUrl?: string | null
   signal?: AbortSignal
 }

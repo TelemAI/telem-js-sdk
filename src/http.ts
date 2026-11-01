@@ -115,8 +115,15 @@ function defaultMessage(status: number): string {
   return `Unexpected status code ${status}`
 }
 
+/** Telem's own 403 is JSON. A non-JSON one comes from the firewall in front of
+ *  Telem: the key is not the problem. */
+const BLOCKED_MESSAGE =
+  "The request was blocked by a firewall before it reached Telem; " +
+  "the text may have characters that are not allowed."
+
 function statusError(status: number, body: unknown): TelemError {
-  return new TelemError(detailFromBody(body) ?? defaultMessage(status), {
+  const fallback = status === 403 && !isObject(body) ? BLOCKED_MESSAGE : defaultMessage(status)
+  return new TelemError(detailFromBody(body) ?? fallback, {
     status,
     code: codeFromBody(body),
     details: body,
