@@ -265,7 +265,7 @@ export type ProviderInfo = {
   url: string | null
   normalized: boolean
   tiers: string[]
-  /** Whether auto-routing can pick it for a ranked topic; `null` from a router that does not say. */
+  /** Whether auto-routing can pick it; `null` from a router that does not say. */
   autoRouted: boolean | null
 }
 
