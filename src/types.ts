@@ -354,12 +354,12 @@ export type Monitor = {
   id: string
   query: string
   frequency: string
-  /** `active` or `paused` (you paused it). */
+  /** `active`, `paused` (you paused it) or `ended` (past `expiresAt`). */
   status: string
   sessionId: string
   createdAt: string
   lastPolledAt: string | null
-  /** When Telem deletes the monitor; `null`: never. */
+  /** When the monitor ends; `null`: never. */
   expiresAt: string | null
   webhookUrl: string | null
   /** Signs the webhook deliveries. Only in the response that set `webhookUrl`. */
@@ -367,10 +367,27 @@ export type Monitor = {
   raw: Json
 }
 
+/** Options for `monitors.list` and `monitors.listPage`. */
+export type MonitorListOptions = {
+  /** How many to return (server default 50, maximum 200). */
+  limit?: number
+  /** The `nextCursor` of the page before. */
+  cursor?: string
+  signal?: AbortSignal
+}
+
+/** One page of `monitors.listPage`. */
+export type MonitorPage = {
+  monitors: Monitor[]
+  /** Pass as `cursor` to get the next page; `null` on the last page. */
+  nextCursor: string | null
+}
+
 /** The `telem.monitors` namespace. */
 export type MonitorsResource = {
   create(query: string, options?: MonitorCreateOptions): Promise<Monitor>
-  list(options?: { limit?: number; signal?: AbortSignal }): Promise<Monitor[]>
+  list(options?: MonitorListOptions): Promise<Monitor[]>
+  listPage(options?: MonitorListOptions): Promise<MonitorPage>
   get(monitorId: string, options?: { signal?: AbortSignal }): Promise<Monitor>
   update(monitorId: string, options: MonitorUpdateOptions): Promise<Monitor>
   poll(monitorId: string, options?: MonitorPollOptions): Promise<SearchResponse>

@@ -48,6 +48,8 @@ export type {
   Json,
   Monitor,
   MonitorCreateOptions,
+  MonitorListOptions,
+  MonitorPage,
   MonitorPollOptions,
   MonitorsResource,
   MonitorUpdateOptions,
@@ -84,7 +86,7 @@ export class Telem {
   readonly maxRetries: number
   /** The session read surface: `list` and `results(id)`. */
   readonly sessions: SessionsResource
-  /** Monitors: `create`, `list`, `get`, `update`, `poll`, `delete`. */
+  /** Monitors: `create`, `list`, `listPage`, `get`, `update`, `poll`, `delete`. */
   readonly monitors: MonitorsResource
 
   readonly #config: ResolvedConfig

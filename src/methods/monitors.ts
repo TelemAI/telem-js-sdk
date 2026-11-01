@@ -7,7 +7,7 @@
 import type { ResolvedConfig } from "../config.ts"
 import { TimeoutError } from "../errors.ts"
 import { asArray, asObject, invalidRequest, request, type Payload } from "../http.ts"
-import type { Monitor, MonitorsResource } from "../types.ts"
+import type { Monitor, MonitorListOptions, MonitorPage, MonitorsResource } from "../types.ts"
 import { buildSearchResponse, searchBlock } from "./search.ts"
 
 function monitorFrom(body: unknown): Monitor {
@@ -27,12 +27,28 @@ function monitorFrom(body: unknown): Monitor {
   }
 }
 
+function listQuery(options: MonitorListOptions): string {
+  const params = new URLSearchParams()
+  if (options.limit !== undefined) params.set("limit", String(options.limit))
+  if (options.cursor !== undefined) params.set("cursor", options.cursor)
+  const query = params.toString()
+  return query ? `?${query}` : ""
+}
+
 /** Bind the monitors resource to one client's configuration. */
 export function createMonitors(config: ResolvedConfig): MonitorsResource {
   // Encoded, and all-dots ids refused, for the same reason as the sessions path.
   const path = (monitorId: string, suffix = "") => {
     if (!monitorId || /^\.+$/.test(monitorId)) throw invalidRequest("a monitor id is required")
     return `/v1/monitors/${encodeURIComponent(monitorId)}${suffix}`
+  }
+
+  /** One page of your monitors, newest first, and the cursor of the next page. */
+  const listPage = async (options: MonitorListOptions = {}): Promise<MonitorPage> => {
+    const route = `/v1/monitors${listQuery(options)}`
+    const data = asObject(await request(config, "GET", route, undefined, options.signal))
+    const nextCursor = typeof data.next_cursor === "string" ? data.next_cursor : null
+    return { monitors: asArray(data.monitors).map(monitorFrom), nextCursor }
   }
 
   return {
@@ -66,12 +82,12 @@ export function createMonitors(config: ResolvedConfig): MonitorsResource {
       return monitorFrom(data)
     },
 
-    /** List your monitors, newest first (server default 50, maximum 200). */
+    /** List your monitors, newest first. `listPage` also gives the next cursor. */
     async list(options = {}) {
-      const query = options.limit === undefined ? "" : `?limit=${options.limit}`
-      const body = await request(config, "GET", `/v1/monitors${query}`, undefined, options.signal)
-      return asArray(asObject(body).monitors).map(monitorFrom)
+      return (await listPage(options)).monitors
     },
+
+    listPage,
 
     /** Get one monitor. */
     async get(monitorId, options = {}) {
