@@ -323,6 +323,10 @@ export type MonitorCreateOptions = {
   webhookUrl?: string
   /** Delete the monitor after this long, such as `"12h"` or `"7d"` (at most `"30d"`). Without it, the monitor never expires. */
   ttl?: string
+  /** Start the monitor agent with the monitor: it checks every result against the query
+   *  and keeps the ones that match. Telem turns it on when you leave this out; `false`
+   *  creates the monitor without one. */
+  agent?: boolean
   signal?: AbortSignal
 }
 

@@ -48,6 +48,7 @@ export function createMonitors(config: ResolvedConfig): MonitorsResource {
       if (options.metadata !== undefined) body.metadata = options.metadata
       if (options.webhookUrl !== undefined) body.webhook_url = options.webhookUrl
       if (options.ttl !== undefined) body.ttl = options.ttl
+      if (options.agent !== undefined) body.agent = options.agent
       // A retry after a lost reply would create a second, billed monitor. Only a 429
       // is safe: the router created nothing then.
       const data = await request(config, "POST", "/v1/monitors", body, options.signal, "rate_limit").catch(
