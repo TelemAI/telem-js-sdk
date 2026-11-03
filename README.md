@@ -213,9 +213,21 @@ your last poll. `poll` returns a `SearchResponse`:
 ```ts
 const monitor = await telem.monitors.create("Nvidia files a new 8-K with the SEC", { frequency: "1h", ttl: "7d" })
 const response = await telem.monitors.poll(monitor.id)
+for await (const change of telem.monitors.iterateChanges(monitor.id)) {
+  console.log(change.seq, change.kind, change.subject.name)
+}
 await telem.monitors.update(monitor.id, { status: "paused" })
 await telem.monitors.delete(monitor.id)
 ```
+
+A monitor has an agent unless you create it with `agent: false`. The agent checks every
+result against the query and keeps the ones that match. `iterateChanges` reads what it
+kept, oldest first, until you are caught up, and then stops. Keep the `seq` of the last
+change you handled and pass it as `cursor` next time: no change comes twice, and none
+is skipped. `changes` returns one page (`nextCursor`, `watermark`) and takes
+`cursor`, `since`, `kinds` and `limit`. `agent` returns the agent itself: its status,
+query, frequency and plan version. `monitor.agentState` shows it on the monitor. Read
+`iterateChanges` with `for await`.
 
 `telem.monitors` also has `get` and `list`. See [Monitors](https://docs.telem.ai/resources/monitors/)
 for the fields and the errors.

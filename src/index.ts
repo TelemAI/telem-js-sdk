@@ -42,12 +42,20 @@ export {
 } from "./trajectory.ts"
 export type { SnapshotArgs, TrajectoryArgs, TrajectoryEnvelope, TrajectorySnapshot } from "./types.ts"
 export type {
+  AgentCompileState,
+  AgentDocument,
+  AgentState,
+  ChangeRecord,
+  ChangesPage,
+  ChangeSubject,
   FetchOptions,
   FetchResponse,
   FetchResult,
   Json,
   Monitor,
+  MonitorChangesOptions,
   MonitorCreateOptions,
+  MonitorIterateChangesOptions,
   MonitorListOptions,
   MonitorPage,
   MonitorPollOptions,
@@ -86,7 +94,8 @@ export class Telem {
   readonly maxRetries: number
   /** The session read surface: `list` and `results(id)`. */
   readonly sessions: SessionsResource
-  /** Monitors: `create`, `list`, `listPage`, `get`, `update`, `poll`, `delete`. */
+  /** Monitors: `create`, `list`, `listPage`, `get`, `update`, `poll`, `delete`, and the
+   *  agent reads `agent`, `changes` and `iterateChanges`. */
   readonly monitors: MonitorsResource
 
   readonly #config: ResolvedConfig

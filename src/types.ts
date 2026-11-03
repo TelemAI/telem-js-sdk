@@ -325,7 +325,7 @@ export type MonitorCreateOptions = {
   ttl?: string
   /** Start the monitor agent with the monitor: it checks every result against the query
    *  and keeps the ones that match. Telem turns it on when you leave this out; `false`
-   *  creates the monitor without one. */
+   *  creates the monitor without one. Read what the agent keeps with `monitors.changes`. */
   agent?: boolean
   signal?: AbortSignal
 }
@@ -364,7 +364,122 @@ export type Monitor = {
   webhookUrl: string | null
   /** Signs the webhook deliveries. Only in the response that set `webhookUrl`. */
   webhookSecret: string | null
+  /** The monitor agent's state. `null`: the monitor has no agent. Absent when the router
+   *  sends none, as a router from before the agent reads does. */
+  agentState?: AgentState | null
   raw: Json
+}
+
+/** The latest compile of an agent's plan (`AgentState.compile`). */
+export type AgentCompileState = {
+  jobId: string
+  /** The compile job's status, such as `done` or `failed`. */
+  status: string
+  /** Why the compile failed; `null` when it did not. */
+  error: string | null
+}
+
+/** The state of a monitor's agent: `monitor.agentState`. */
+export type AgentState = {
+  /** The agent engine, `"v4"` today. */
+  engine: string
+  /** Such as `compiling`, `ready`, `paused` or `failed`. */
+  status: string
+  /** `true` when `status` is `failed`. */
+  needsAttention: boolean
+  /** The version of the agent's plan; `null` before it has one. */
+  planVersion: number | null
+  /** When the agent runs next; `null` when no run is scheduled. */
+  nextRunAt: string | null
+  /** The `seq` of the newest change `monitors.changes` can serve now. */
+  watermark: number
+  /** The latest compile of the plan; `null` when there has been none. */
+  compile: AgentCompileState | null
+}
+
+/** The monitor agent's document: `monitors.agent`. A field is there only when the
+ *  router sent it. The rest of the document (the plan, the counts, the runs) is in `raw`. */
+export type AgentDocument = {
+  /** Such as `compiling`, `ready`, `paused`, `failed` or `ended`. */
+  status?: string
+  query?: string
+  frequency?: string
+  /** The version of the plan; 0 while the agent compiles. */
+  specVersion?: number
+  /** The agent's spending limits; `null` when none are set. */
+  budget?: Json | null
+  /** What the agent has spent, in US dollars. */
+  spendUsd?: number
+  raw: Json
+}
+
+/** The item a change is about. `entityId` is `null` for a change to the whole monitor,
+ *  such as a run or a plan change. */
+export type ChangeSubject = {
+  entityId: string | null
+  name: string | null
+}
+
+/** One change the monitor agent made. */
+export type ChangeRecord = {
+  /** The change's place in the stream. It grows with every change and is never reused.
+   *  Pass the last one you handled as `cursor` to read on from there. */
+  seq: number
+  /** The change's own type, such as `new_object`. */
+  type: string
+  /** What happened: one of the six kinds `entity_added`, `value_changed`,
+   *  `fact_status_changed`, `alert`, `run` or `plan_changed`. */
+  kind: string
+  monitorId: string
+  subject: ChangeSubject
+  /** What it was before, as the router sent it; `null` when there is no before. Its shape
+   *  depends on `kind`. */
+  before: unknown
+  /** What it is now, as the router sent it. */
+  after: unknown
+  /** The facts behind the change; empty when the router names none. */
+  factIds: string[]
+  /** When it happened, ISO 8601. */
+  at: string
+  raw: Json
+}
+
+/** One page of `monitors.changes`. */
+export type ChangesPage = {
+  changes: ChangeRecord[]
+  /** Keep this and pass it as `cursor` to read the changes after this page. On a full
+   *  page (`limit` changes) it is the `seq` of the last change. On a shorter page, an
+   *  empty one included, it is `watermark`: the read got that far, past the changes
+   *  that `kinds` left out too. */
+  nextCursor: number
+  /** The `seq` of the newest change that can be read now. You are caught up when
+   *  `nextCursor` equals it, or when a page is empty. */
+  watermark: number
+}
+
+/** Options for `monitors.changes`. */
+export type MonitorChangesOptions = {
+  /** Read the changes after this `seq`. If you leave it out, the page starts at the
+   *  first change. Do not send it with `since`. */
+  cursor?: number
+  /** Read from this time on: a `Date`, or an ISO 8601 time with an offset such as
+   *  `"2026-11-03T12:00:00Z"`. Do not send it with `cursor`. */
+  since?: string | Date
+  /** Only these kinds of change: `entity_added`, `value_changed`, `fact_status_changed`,
+   *  `alert`, `run` or `plan_changed`, for example `["alert", "run"]`. Another name is a
+   *  400 (`kinds_invalid`). An empty list is no filter. */
+  kinds?: string[]
+  /** How many changes to return (server default 200, maximum 500). */
+  limit?: number
+  signal?: AbortSignal
+}
+
+/** Options for `monitors.iterateChanges`. */
+export type MonitorIterateChangesOptions = {
+  /** Read the changes after this `seq`. If you leave it out, the walk starts at the
+   *  first change. */
+  cursor?: number
+  signal?: AbortSignal
 }
 
 /** Options for `monitors.list` and `monitors.listPage`. */
@@ -392,4 +507,13 @@ export type MonitorsResource = {
   update(monitorId: string, options: MonitorUpdateOptions): Promise<Monitor>
   poll(monitorId: string, options?: MonitorPollOptions): Promise<SearchResponse>
   delete(monitorId: string, options?: { signal?: AbortSignal }): Promise<void>
+  /** Read the monitor agent's document. A monitor without an agent answers 404. */
+  agent(monitorId: string, options?: { signal?: AbortSignal }): Promise<AgentDocument>
+  /** One page of the agent's changes. Keep `nextCursor` and pass it back as `cursor`. */
+  changes(monitorId: string, options?: MonitorChangesOptions): Promise<ChangesPage>
+  /** Every change after `cursor`, page by page, until you are caught up. */
+  iterateChanges(
+    monitorId: string,
+    options?: MonitorIterateChangesOptions,
+  ): AsyncGenerator<ChangeRecord, void, undefined>
 }

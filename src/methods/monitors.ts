@@ -3,16 +3,51 @@
 //
 // A poll answers with the search response shape, read by the search parser. It
 // echoes no `normalized_schema_version`, so the search version gate does not run.
+//
+// The agent reads (`agent`, `changes`, `iterateChanges`) are GETs on
+// `/v1/monitors/{id}/agent`. They change nothing, so they retry like any other GET.
+// Like every other response here they are mapped to camelCase with the router's own
+// object kept in `raw`; `before` and `after` of a change are the exception, passed
+// through as the router sent them.
 
 import type { ResolvedConfig } from "../config.ts"
 import { TimeoutError } from "../errors.ts"
-import { asArray, asObject, invalidRequest, request, type Payload } from "../http.ts"
-import type { Monitor, MonitorListOptions, MonitorPage, MonitorsResource } from "../types.ts"
+import { asArray, asObject, invalidRequest, isObject, request, type Payload } from "../http.ts"
+import type {
+  AgentDocument,
+  AgentState,
+  ChangeRecord,
+  ChangesPage,
+  Monitor,
+  MonitorChangesOptions,
+  MonitorListOptions,
+  MonitorPage,
+  MonitorsResource,
+} from "../types.ts"
 import { buildSearchResponse, searchBlock } from "./search.ts"
+
+function agentStateFrom(data: Payload): AgentState {
+  return {
+    engine: String(data.engine ?? ""),
+    status: String(data.status ?? ""),
+    needsAttention: data.needs_attention === true,
+    planVersion: typeof data.plan_version === "number" ? data.plan_version : null,
+    nextRunAt: typeof data.next_run_at === "string" ? data.next_run_at : null,
+    watermark: Number(data.watermark ?? 0),
+    // No compile job yet is null, not an object of empty strings.
+    compile: isObject(data.compile)
+      ? {
+          jobId: String(data.compile.job_id ?? ""),
+          status: String(data.compile.status ?? ""),
+          error: typeof data.compile.error === "string" ? data.compile.error : null,
+        }
+      : null,
+  }
+}
 
 function monitorFrom(body: unknown): Monitor {
   const data = asObject(body)
-  return {
+  const monitor: Monitor = {
     id: String(data.id ?? ""),
     query: data.query ?? "",
     frequency: data.frequency ?? "",
@@ -25,12 +60,81 @@ function monitorFrom(body: unknown): Monitor {
     webhookSecret: data.webhook_secret ?? null,
     raw: data,
   }
+  // `null` is a monitor without an agent. A router that sends no `agent_state` at all
+  // (one from before the agent reads) leaves it undefined: that is not "no agent".
+  if (data.agent_state !== undefined) {
+    monitor.agentState = isObject(data.agent_state) ? agentStateFrom(data.agent_state) : null
+  }
+  return monitor
+}
+
+/** Only the fields the document has: the SDK says nothing the router did not. */
+function agentDocumentFrom(body: unknown): AgentDocument {
+  const data = asObject(body)
+  const document: AgentDocument = { raw: data }
+  if (typeof data.status === "string") document.status = data.status
+  if (typeof data.query === "string") document.query = data.query
+  if (typeof data.frequency === "string") document.frequency = data.frequency
+  if (typeof data.spec_version === "number") document.specVersion = data.spec_version
+  if (data.budget !== undefined) document.budget = isObject(data.budget) ? data.budget : null
+  if (typeof data.spend_usd === "number") document.spendUsd = data.spend_usd
+  return document
+}
+
+function changeRecordFrom(entry: Payload): ChangeRecord {
+  const subject = asObject(entry.subject)
+  return {
+    seq: Number(entry.seq ?? 0),
+    type: String(entry.type ?? ""),
+    kind: String(entry.kind ?? ""),
+    monitorId: String(entry.monitor_id ?? ""),
+    subject: {
+      entityId: typeof subject.entity_id === "string" ? subject.entity_id : null,
+      name: typeof subject.name === "string" ? subject.name : null,
+    },
+    // The values depend on the kind (an object, a status string, nothing): as sent.
+    before: entry.before ?? null,
+    after: entry.after ?? null,
+    factIds: asArray(entry.fact_ids).map(String),
+    at: String(entry.at ?? ""),
+    raw: entry,
+  }
+}
+
+function changesPageFrom(body: unknown): ChangesPage {
+  const data = asObject(body)
+  return {
+    changes: asArray(data.changes).filter(isObject).map(changeRecordFrom),
+    nextCursor: Number(data.next_cursor ?? 0),
+    watermark: Number(data.watermark ?? 0),
+  }
 }
 
 function listQuery(options: MonitorListOptions): string {
   const params = new URLSearchParams()
   if (options.limit !== undefined) params.set("limit", String(options.limit))
   if (options.cursor !== undefined) params.set("cursor", options.cursor)
+  const query = params.toString()
+  return query ? `?${query}` : ""
+}
+
+/** A `Date` goes out in UTC; a string goes out as given, and the router refuses a time
+ *  without an offset. The string is told by its type: a `Date` made in another realm (a
+ *  vm context, an iframe) is not `instanceof Date` here, and must not go out as text. */
+function sinceParam(since: string | Date): string {
+  if (typeof since === "string") return since
+  if (Number.isNaN(since.getTime())) throw invalidRequest("since is not a valid date")
+  return since.toISOString()
+}
+
+/** Only what the caller set is sent: `0` is a value, and the router has its own defaults.
+ *  `URLSearchParams` encodes the "+" of an offset, which a router would read as a space. */
+function changesQuery(options: MonitorChangesOptions): string {
+  const params = new URLSearchParams()
+  if (options.cursor !== undefined) params.set("cursor", String(options.cursor))
+  if (options.since !== undefined) params.set("since", sinceParam(options.since))
+  if (options.kinds !== undefined) params.set("kinds", options.kinds.join(","))
+  if (options.limit !== undefined) params.set("limit", String(options.limit))
   const query = params.toString()
   return query ? `?${query}` : ""
 }
@@ -49,6 +153,12 @@ export function createMonitors(config: ResolvedConfig): MonitorsResource {
     const data = asObject(await request(config, "GET", route, undefined, options.signal))
     const nextCursor = typeof data.next_cursor === "string" ? data.next_cursor : null
     return { monitors: asArray(data.monitors).map(monitorFrom), nextCursor }
+  }
+
+  /** One page of the agent's changes: the records after the cursor, up to the watermark. */
+  const changes = async (monitorId: string, options: MonitorChangesOptions = {}): Promise<ChangesPage> => {
+    const route = `${path(monitorId, "/agent/changes")}${changesQuery(options)}`
+    return changesPageFrom(await request(config, "GET", route, undefined, options.signal))
   }
 
   return {
@@ -120,6 +230,29 @@ export function createMonitors(config: ResolvedConfig): MonitorsResource {
     /** Delete a monitor. A repeat deletes what a failed delete left. */
     async delete(monitorId, options = {}) {
       await request(config, "DELETE", path(monitorId), undefined, options.signal)
+    },
+
+    /** Read the monitor agent's document. A monitor without an agent answers 404. */
+    async agent(monitorId, options = {}) {
+      const route = path(monitorId, "/agent")
+      return agentDocumentFrom(await request(config, "GET", route, undefined, options.signal))
+    },
+
+    /** One page of the agent's changes. Keep `nextCursor` and pass it back as `cursor`. */
+    changes,
+
+    /** Every change after `cursor`, page by page, until you are caught up. */
+    async *iterateChanges(monitorId, options = {}) {
+      let cursor = options.cursor ?? 0
+      for (;;) {
+        const page = await changes(monitorId, { cursor, signal: options.signal })
+        for (const change of page.changes) yield change
+        // Caught up: the cursor reached the watermark. An empty page ends the walk too, and
+        // so does a cursor that did not move: a router that stalls cannot hold this loop
+        // on the same page for ever.
+        if (!page.changes.length || page.nextCursor <= cursor || page.nextCursor >= page.watermark) return
+        cursor = page.nextCursor
+      }
     },
   }
 }
