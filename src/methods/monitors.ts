@@ -1,14 +1,18 @@
-// monitors: a query that Telem runs on a schedule, read back with `poll`.
-// Python twin: telem/resources/monitors.py.
+// monitors: a query that Telem runs on a schedule, with an agent that keeps what
+// matches. Python twin: telem/resources/monitors.py.
 //
-// A poll answers with the search response shape, read by the search parser. It
-// echoes no `normalized_schema_version`, so the search version gate does not run.
+// A create has the agent unless `agent` is `false`, and a monitor with the agent must
+// end, so its create needs a `ttl`: one without it is refused before anything is sent.
 //
 // The agent reads (`agent`, `changes`, `iterateChanges`) are GETs on
 // `/v1/monitors/{id}/agent`. They change nothing, so they retry like any other GET.
 // Like every other response here they are mapped to camelCase with the router's own
 // object kept in `raw`; `before` and `after` of a change are the exception, passed
 // through as the router sent them.
+//
+// `poll` is deprecated, and warns once per process. A poll answers with the search
+// response shape, read by the search parser. It echoes no `normalized_schema_version`,
+// so the search version gate does not run.
 
 import type { ResolvedConfig } from "../config.ts"
 import { TimeoutError } from "../errors.ts"
@@ -20,11 +24,40 @@ import type {
   ChangesPage,
   Monitor,
   MonitorChangesOptions,
+  MonitorCreateCommonOptions,
   MonitorListOptions,
   MonitorPage,
   MonitorsResource,
 } from "../types.ts"
 import { buildSearchResponse, searchBlock } from "./search.ts"
+
+/** Why a create with the agent and no `ttl` is refused before anything is sent. */
+const NEEDS_TTL =
+  'A monitor with an agent must end: pass ttl, such as ttl: "30d" (at most 30 days), ' +
+  "or agent: false for a monitor without an agent."
+
+/** What a create can be given at run time. The types ask for `ttl` with the agent, but a
+ *  JavaScript caller can send anything, `null` included, or no options at all. */
+type CreateInput = MonitorCreateCommonOptions & { ttl?: string | null; agent?: boolean | null }
+
+const POLL_DEPRECATED =
+  "@telemai/sdk: monitors.poll() is deprecated: read what the monitor agent finds with " +
+  "monitors.iterateChanges() or monitors.changes()."
+
+/** Whether this process has been told that `poll` is deprecated: it is told once. */
+let pollWarned = false
+
+function warnPollDeprecated(): void {
+  if (pollWarned) return
+  pollWarned = true
+  console.warn(POLL_DEPRECATED)
+}
+
+/** Tests only: forget that this process was told `poll` is deprecated. The package
+ *  does not export it. */
+export function resetPollWarning(): void {
+  pollWarned = false
+}
 
 function agentStateFrom(data: Payload): AgentState {
   return {
@@ -58,6 +91,7 @@ function monitorFrom(body: unknown): Monitor {
     expiresAt: data.expires_at ?? null,
     webhookUrl: data.webhook_url ?? null,
     webhookSecret: data.webhook_secret ?? null,
+    agentNote: typeof data.agent_note === "string" ? data.agent_note : null,
     raw: data,
   }
   // `null` is a monitor without an agent. A router that sends no `agent_state` at all
@@ -162,22 +196,26 @@ export function createMonitors(config: ResolvedConfig): MonitorsResource {
   }
 
   return {
-    /** Create a monitor. Telem runs `query` on the schedule. */
-    async create(query, options = {}) {
+    /** Create a monitor. Telem runs `query` on the schedule, and its agent keeps what matches. */
+    async create(query, options) {
+      const given: CreateInput = options ?? {}
+      // A missing or null agent is the default: on.
+      const agent = given.agent == null ? true : Boolean(given.agent)
+      if (agent && !given.ttl) throw invalidRequest(NEEDS_TTL)
       const monitorOptions: Payload = {}
-      if (options.frequency !== undefined) monitorOptions.frequency = options.frequency
-      if (options.includeDomains !== undefined) {
-        monitorOptions.include_domains = options.includeDomains
+      if (given.frequency !== undefined) monitorOptions.frequency = given.frequency
+      if (given.includeDomains !== undefined) {
+        monitorOptions.include_domains = given.includeDomains
       }
-      if (options.search !== undefined) monitorOptions.search = searchBlock({}, options.search)
+      if (given.search !== undefined) monitorOptions.search = searchBlock({}, given.search)
       const body: Payload = { query, options: monitorOptions }
-      if (options.metadata !== undefined) body.metadata = options.metadata
-      if (options.webhookUrl !== undefined) body.webhook_url = options.webhookUrl
-      if (options.ttl !== undefined) body.ttl = options.ttl
-      if (options.agent !== undefined) body.agent = options.agent
+      if (given.metadata !== undefined) body.metadata = given.metadata
+      if (given.webhookUrl !== undefined) body.webhook_url = given.webhookUrl
+      if (given.ttl !== undefined) body.ttl = given.ttl
+      body.agent = agent
       // A retry after a lost reply would create a second, billed monitor. Only a 429
       // is safe: the router created nothing then.
-      const data = await request(config, "POST", "/v1/monitors", body, options.signal, "rate_limit").catch(
+      const data = await request(config, "POST", "/v1/monitors", body, given.signal, "rate_limit").catch(
         (error: unknown) => {
           // The router may have made the monitor before the client gave up.
           if (error instanceof TimeoutError) {
@@ -204,19 +242,22 @@ export function createMonitors(config: ResolvedConfig): MonitorsResource {
       return monitorFrom(await request(config, "GET", path(monitorId), undefined, options.signal))
     },
 
-    /** Pause, resume or change a monitor. Only the fields given are sent. */
+    /** Pause, resume, renew or change a monitor. Only the fields given are sent. */
     async update(monitorId, options) {
       const body: Payload = {}
       if (options.status !== undefined) body.status = options.status
       if (options.frequency !== undefined) body.frequency = options.frequency
+      if (options.ttl !== undefined) body.ttl = options.ttl
       // "" removes the webhook, as `null` does and as in the Python SDK.
       if (options.webhookUrl !== undefined) body.webhook_url = options.webhookUrl || null
       const route = path(monitorId)
       return monitorFrom(await request(config, "PATCH", route, body, options.signal))
     },
 
-    /** Get the results that are new since the last poll. */
+    /** Get the monitor's own results that are new since the last poll. Deprecated: it
+     *  warns once per process. */
     async poll(monitorId, options = {}) {
+      warnPollDeprecated()
       const body: Payload = {}
       if (options.session !== undefined) body.session_id = options.session
       if (options.metadata !== undefined) body.metadata = options.metadata

@@ -307,28 +307,48 @@ export type SessionsResource = {
 /** The search options a monitor can run on its schedule (`MonitorCreateOptions.search`). */
 export type MonitorSearchOptions = Pick<SearchOptions, "tier" | "numResults">
 
-/** Options for `monitors.create`. */
-export type MonitorCreateOptions = {
+/** The options of `monitors.create` that a monitor takes with the agent or without. */
+export type MonitorCreateCommonOptions = {
   /** `"1h"`, `"6h"`, `"12h"`, `"1d"` or `"7d"`. If you leave it out, the monitor runs once a day. */
   frequency?: string
   /** Also run a web search for the query on the schedule, with these options. `{}`
-   *  uses the defaults. Client search defaults do not apply. */
+   *  uses the defaults. Client search defaults do not apply. It adds to what a poll returns. */
   search?: MonitorSearchOptions
-  /** Only results from these sites and their subdomains, such as `["sec.gov"]`,
-   *  from every source of the monitor. */
+  /** Only results from these sites and their subdomains, such as `["sec.gov"]`, in what
+   *  a poll returns. */
   includeDomains?: string[]
-  /** Request metadata (query lineage keys), sent as given. */
+  /** Query lineage keys, sent as given. They choose the session that records the polls of
+   *  the monitor. */
   metadata?: Json
   /** An `https` URL that receives the new results. */
   webhookUrl?: string
-  /** Delete the monitor after this long, such as `"12h"` or `"7d"` (at most `"30d"`). Without it, the monitor never expires. */
-  ttl?: string
-  /** Start the monitor agent with the monitor: it checks every result against the query
-   *  and keeps the ones that match. Telem turns it on when you leave this out; `false`
-   *  creates the monitor without one. Read what the agent keeps with `monitors.changes`. */
-  agent?: boolean
   signal?: AbortSignal
 }
+
+// The monitor with the agent comes last: TypeScript checks a union member by member and
+// reports the last one, so leaving out `ttl` reads as "Property 'ttl' is missing".
+/** Options for `monitors.create`. A monitor has the agent unless `agent` is `false`,
+ *  and a monitor with the agent must end: then `ttl` is required. */
+export type MonitorCreateOptions = MonitorCreateCommonOptions &
+  (
+    | {
+        /** `false` creates a monitor without an agent, which you read with the deprecated
+         *  `monitors.poll`. */
+        agent: false
+        /** End the monitor after this long, such as `"7d"` or `"30d"` (at most `"30d"`).
+         *  Without it, a monitor without an agent never ends. */
+        ttl?: string
+      }
+    | {
+        /** Start the monitor agent with the monitor, the default: it checks every result
+         *  against the query and keeps the ones that match. Read what it keeps with
+         *  `monitors.iterateChanges` or `monitors.changes`. */
+        agent?: true
+        /** End the monitor after this long, such as `"7d"` or `"30d"` (at most `"30d"`).
+         *  Required with the agent. */
+        ttl: string
+      }
+  )
 
 /** Options for `monitors.update`. Send at least one field. */
 export type MonitorUpdateOptions = {
@@ -337,10 +357,14 @@ export type MonitorUpdateOptions = {
   frequency?: string
   /** A new webhook URL, with a new `webhookSecret` in the response. `null` or `""` removes it. */
   webhookUrl?: string | null
+  /** A new end, this long from now, such as `"30d"` (at most `"30d"`). It renews a monitor
+   *  before it ends; an ended monitor cannot be renewed. */
+  ttl?: string
   signal?: AbortSignal
 }
 
-/** Options for `monitors.poll`. */
+/** Options for `monitors.poll`.
+ *  @deprecated `poll` is deprecated: read the agent with `monitors.iterateChanges`. */
 export type MonitorPollOptions = {
   /** Record this poll in another session (default: the monitor's own). */
   session?: string
@@ -367,6 +391,9 @@ export type Monitor = {
   /** The monitor agent's state. `null`: the monitor has no agent. Absent when the router
    *  sends none, as a router from before the agent reads does. */
   agentState?: AgentState | null
+  /** Only in the answer to a create: why the monitor agent did not start, or not yet.
+   *  `null` when it started, and in every other answer. */
+  agentNote: string | null
   raw: Json
 }
 
@@ -500,11 +527,17 @@ export type MonitorPage = {
 
 /** The `telem.monitors` namespace. */
 export type MonitorsResource = {
-  create(query: string, options?: MonitorCreateOptions): Promise<Monitor>
+  /** Create a monitor. It has the agent unless `agent` is `false`, and with the agent
+   *  `ttl` is required: a create without it throws a `TelemError` (`invalid_request`)
+   *  before anything is sent. */
+  create(query: string, options: MonitorCreateOptions): Promise<Monitor>
   list(options?: MonitorListOptions): Promise<Monitor[]>
   listPage(options?: MonitorListOptions): Promise<MonitorPage>
   get(monitorId: string, options?: { signal?: AbortSignal }): Promise<Monitor>
   update(monitorId: string, options: MonitorUpdateOptions): Promise<Monitor>
+  /** Get the monitor's own results that are new since the last poll.
+   *  @deprecated Read what the monitor agent finds with `iterateChanges` or `changes`.
+   *  A poll still works, and warns once per process with `console.warn`. */
   poll(monitorId: string, options?: MonitorPollOptions): Promise<SearchResponse>
   delete(monitorId: string, options?: { signal?: AbortSignal }): Promise<void>
   /** Read the monitor agent's document. A monitor without an agent answers 404. */

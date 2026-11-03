@@ -94,8 +94,8 @@ export class Telem {
   readonly maxRetries: number
   /** The session read surface: `list` and `results(id)`. */
   readonly sessions: SessionsResource
-  /** Monitors: `create`, `list`, `listPage`, `get`, `update`, `poll`, `delete`, and the
-   *  agent reads `agent`, `changes` and `iterateChanges`. */
+  /** Monitors: `create`, `list`, `listPage`, `get`, `update` and `delete`, the agent reads
+   *  `agent`, `changes` and `iterateChanges`, and the deprecated `poll`. */
   readonly monitors: MonitorsResource
 
   readonly #config: ResolvedConfig

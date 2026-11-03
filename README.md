@@ -207,30 +207,35 @@ results of each search step.
 
 ## Monitors
 
-A monitor runs a query on a schedule. Poll it to get the results that are new since
-your last poll. `poll` returns a `SearchResponse`:
+A monitor runs a query on a schedule, and its agent checks every result against the
+query and keeps the ones that match. A monitor has the agent unless you create it with
+`agent: false`, and a monitor with the agent needs a `ttl`, at most `"30d"`: without
+one, `create` throws a `TelemError` with the code `invalid_request`.
 
 ```ts
-const monitor = await telem.monitors.create("Nvidia files a new 8-K with the SEC", { frequency: "1h", ttl: "7d" })
-const response = await telem.monitors.poll(monitor.id)
+const monitor = await telem.monitors.create("Nvidia files a new 8-K with the SEC", { frequency: "1h", ttl: "30d" })
+console.log(monitor.agentState?.status) // what its agent does: compiling, then ready
 for await (const change of telem.monitors.iterateChanges(monitor.id)) {
   console.log(change.seq, change.kind, change.subject.name)
 }
+const agent = await telem.monitors.agent(monitor.id)
 await telem.monitors.update(monitor.id, { status: "paused" })
+await telem.monitors.update(monitor.id, { ttl: "30d" }) // renew: it ends 30 days from now
 await telem.monitors.delete(monitor.id)
 ```
 
-A monitor has an agent unless you create it with `agent: false`. The agent checks every
-result against the query and keeps the ones that match. `iterateChanges` reads what it
-kept, oldest first, until you are caught up, and then stops. Keep the `seq` of the last
-change you handled and pass it as `cursor` next time: no change comes twice, and none
-is skipped. `changes` returns one page (`nextCursor`, `watermark`) and takes
-`cursor`, `since`, `kinds` and `limit`. `agent` returns the agent itself: its status,
-query, frequency and plan version. `monitor.agentState` shows it on the monitor. Read
-`iterateChanges` with `for await`.
+`iterateChanges` reads what the agent kept, oldest first, until you are caught up,
+and then stops. Keep the `seq` of the last change you handled and pass it as `cursor`
+next time: no change comes twice, and none is skipped. `changes` returns one page
+(`nextCursor`, `watermark`) and takes `cursor`, `since`, `kinds` and `limit`. `agent`
+returns the agent itself: its status, query, frequency and plan version.
+`monitor.agentState` shows it on the monitor; when the agent did not start, the
+create's `monitor.agentNote` says why. Read `iterateChanges` with `for await`.
 
-`telem.monitors` also has `get` and `list`. See [Monitors](https://docs.telem.ai/resources/monitors/)
-for the fields and the errors.
+`telem.monitors` also has `get` and `list`. `poll` is deprecated and warns once:
+read the agent's changes with `iterateChanges` instead.
+See [Monitors](https://docs.telem.ai/resources/monitors/) for the fields, the errors and
+the older reads.
 
 ## Vercel AI SDK
 
@@ -381,7 +386,7 @@ try {
 
 | Situation | Result |
 |---|---|
-| Bad input (empty query, empty URL list) | `TelemError`, `code: "invalid_request"`, nothing sent |
+| Bad input (empty query, empty URL list, a monitor with an agent and no `ttl`) | `TelemError`, `code: "invalid_request"`, nothing sent |
 | Network failure | `TelemError`, `code: "connection_error"`, after the retries |
 | 5xx or 429 | Retried with backoff (`Retry-After` applies), then `TelemError` with the status |
 | Other 4xx | `TelemError` with the status and the code from the server, not retried |
