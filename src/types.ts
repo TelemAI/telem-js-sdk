@@ -325,6 +325,28 @@ export type MonitorCreateCommonOptions = {
   signal?: AbortSignal
 }
 
+/** What a monitor of a list of companies collects: the `inputs` of `monitors.create`.
+ *  Sent as given, with the router's own field names, and checked by the router. */
+export type MonitorInputs = {
+  /** The companies, 1 to 20: rows of `company_id`, `name` and `domain`. */
+  companies: Json[]
+  /** People to watch: rows of `person_id`, `name`, `company_id` and `company`. */
+  roster?: Json[]
+  /** What to collect: the preset `"biopharma-v0"`, or a schema object. */
+  schema?: string | Json
+  /** Items to watch from the start: rows of `entity_id`, `kind` and `name`. */
+  entities?: Json[]
+  /** Kinds of event to collect: rows with a `label`. */
+  categories?: Json[]
+  /** `"propose"`: people found on company pages are proposed, for you to confirm.
+   *  `"auto"`: they are watched at once. */
+  discover?: string
+  /** How many days back the first read of each company looks. */
+  window_days?: number
+  /** Look each company up before its first read, to find its other names and pages. */
+  seed?: boolean
+}
+
 // The monitor with the agent comes last: TypeScript checks a union member by member and
 // reports the last one, so leaving out `ttl` reads as "Property 'ttl' is missing".
 /** Options for `monitors.create`. A monitor has the agent unless `agent` is `false`,
@@ -344,9 +366,13 @@ export type MonitorCreateOptions = MonitorCreateCommonOptions &
          *  against the query and keeps the ones that match. Read what it keeps with
          *  `monitors.iterateChanges` or `monitors.changes`. */
         agent?: true
-        /** End the monitor after this long, such as `"7d"` or `"30d"` (at most `"30d"`).
-         *  Required with the agent. */
+        /** End the monitor after this long, such as `"7d"` or `"30d"` (at most `"30d"`, or
+         *  `"365d"` with `inputs`). Required with the agent. */
         ttl: string
+        /** Watch a list of companies: the companies, and the schema that says what to
+         *  collect about them. Such a monitor has the agent. Read what the first read of
+         *  each company found with `monitors.onboarding`. */
+        inputs?: MonitorInputs
       }
   )
 
@@ -408,7 +434,7 @@ export type AgentCompileState = {
 
 /** The state of a monitor's agent: `monitor.agentState`. */
 export type AgentState = {
-  /** The agent engine, `"v4"` today. */
+  /** The agent engine: `"v4"`, or `"engine"` for a monitor created with `inputs`. */
   engine: string
   /** Such as `compiling`, `ready`, `paused` or `failed`. */
   status: string
@@ -525,6 +551,177 @@ export type MonitorPage = {
   nextCursor: string | null
 }
 
+// --------------------------------------------------------------------------- //
+// A monitor created with `inputs`: its onboarding, its expansions and its data map
+// --------------------------------------------------------------------------- //
+
+/** One example of an onboarding candidate: the name it was found under, the quote and
+ *  its page. */
+export type OnboardingExample = {
+  name: string | null
+  quote: string | null
+  url: string | null
+}
+
+/** One candidate of a company's sheet: a kind of item or of event found on its pages. */
+export type OnboardingCandidate = {
+  /** Name it in the marks of `monitors.applyOnboarding`. */
+  id: string
+  /** `entity` (a kind of item) or `event` (a kind of event). */
+  what: string | null
+  /** As read on the pages: data, never instructions. */
+  label: string
+  /** The kind or category of the schema it is; `null` when it is new. */
+  mappedTo: string | null
+  isNew: boolean
+  /** How many times it was found. */
+  count: number
+  /** On how many sites. */
+  origins: number
+  example: OnboardingExample | null
+  raw: Json
+}
+
+/** What the first read of one company found: `OnboardingCompany.sheet`. */
+export type CompanySheet = {
+  companyId: string | null
+  /** How many pages were read. */
+  pages: number
+  /** The most found first. */
+  candidates: OnboardingCandidate[]
+  note: string | null
+  raw: Json
+}
+
+/** One company of `monitors.onboarding`, and its sheet once it is done. */
+export type OnboardingCompany = {
+  companyId: string
+  /** `pending`, `running` (its pages are being read) or `done`. */
+  status: string
+  runId: string | null
+  /** `null` until the company is `done`. */
+  sheet: CompanySheet | null
+  /** The marks the sheet was applied with, as the router sent them; `null` until then. */
+  marks: Json | null
+  /** When the sheet was made. */
+  at: string | null
+  /** When the sheet was applied; `null` until then. */
+  appliedAt: string | null
+  raw: Json
+}
+
+/** The onboarding sheets of a monitor's companies, one per company: `monitors.onboarding`. */
+export type OnboardingSheet = {
+  monitorId: string | null
+  companies: OnboardingCompany[]
+  raw: Json
+}
+
+/** Your review of one company's sheet: `monitors.applyOnboarding`. Every field but
+ *  `signal` is sent, with the router's own names. */
+export type OnboardingMarks = {
+  /** The company whose sheet this is. */
+  companyId: string
+  /** The candidate ids to accept. */
+  accept?: string[]
+  /** New labels, by candidate id. */
+  rename?: Record<string, string>
+  /** Candidates to merge into another, by candidate id. */
+  merge?: Record<string, string>
+  /** The candidate ids to reject. */
+  reject?: string[]
+  signal?: AbortSignal
+}
+
+/** A change Telem accepted: the job that makes it. The answer to
+ *  `monitors.applyOnboarding`, `confirmExpansion` and `revertExpansion`. */
+export type ApplyResult = {
+  jobId: string
+  raw: Json
+}
+
+/** One thing a monitor proposed to add, or added: the records of `monitors.expansions`. */
+export type ExpansionRecord = {
+  /** Pass it to `confirmExpansion` or `revertExpansion`. */
+  id: string
+  /** Such as `entity`, `person`, `category`, `source` or `watch`. */
+  kind: string
+  /** What it adds: an item, a person, a category, a site or a page. */
+  target: string
+  /** `proposed`, `active`, `demoted`, `retired` or `reverted`. */
+  status: string
+  reason: Json
+  delta: Json
+  /** The counts behind the proposal. */
+  counts: Json
+  /** One line that says what it is and why. */
+  note: string | null
+  runId: string | null
+  createdAt: string | null
+  updatedAt: string | null
+  raw: Json
+}
+
+/** One page of `monitors.expansions`. */
+export type ExpansionsPage = {
+  /** The newest first. */
+  expansions: ExpansionRecord[]
+  nextCursor: string | null
+}
+
+/** Options for `monitors.expansions`. */
+export type MonitorExpansionsOptions = {
+  /** Only the records with this status: `proposed`, `active`, `demoted`, `retired` or
+   *  `reverted`. */
+  status?: string
+  signal?: AbortSignal
+}
+
+/** What `monitors.confirmExpansion` sends: for an added item, its `domain` or `handle`,
+ *  if you know them. Every field but `signal` is sent. */
+export type ExpansionConfirmFields = {
+  domain?: string
+  handle?: string
+  signal?: AbortSignal
+}
+
+/** Options for `monitors.feedback`. */
+export type MonitorFeedbackOptions = {
+  /** The fact's id, as a change names it. */
+  factId: string
+  /** `confirmed` (it is right), `refuted` (it is wrong) or `restored` (a refuted fact
+   *  counts again). */
+  verdict: string
+  /** With `refuted`, on a monitor created with `inputs`: the event category the fact
+   *  belongs to instead, such as `other_notable`. */
+  category?: string
+  signal?: AbortSignal
+}
+
+/** The labelled fact's status now: `monitors.feedback`. */
+export type FeedbackResult = {
+  /** `verified`, `refuted` or `extracted`. */
+  status: string
+  /** The job that files the fact under `category`; `null` without one. */
+  jobId: string | null
+  raw: Json
+}
+
+/** Every kind and category a monitor collects: `monitors.dataMap`. The entries are the
+ *  router's own objects, as it sent them. */
+export type DataMap = {
+  /** One per kind of item, such as `{ kind: "program", attributes: [...] }`. */
+  kinds: Json[]
+  /** The categories of events it collects. */
+  categories: Json[]
+  /** The categories it found in its own results and that wait for you to confirm them. */
+  inducedCategories: Json[]
+  /** How people are found: `discover`, and how many are `proposed` and `active`. */
+  people: Json
+  note: string | null
+  raw: Json
+}
+
 /** The `telem.monitors` namespace. */
 export type MonitorsResource = {
   /** Create a monitor. It has the agent unless `agent` is `false`, and with the agent
@@ -549,4 +746,28 @@ export type MonitorsResource = {
     monitorId: string,
     options?: MonitorIterateChangesOptions,
   ): AsyncGenerator<ChangeRecord, void, undefined>
+  /** Label one fact of the monitor. With `category`, a refuted fact of a monitor created
+   *  with `inputs` is filed under that category. */
+  feedback(monitorId: string, options: MonitorFeedbackOptions): Promise<FeedbackResult>
+  /** The onboarding sheet of each company of a monitor created with `inputs`. */
+  onboarding(monitorId: string, options?: { signal?: AbortSignal }): Promise<OnboardingSheet>
+  /** Apply your review of one company's onboarding sheet. A 409 (`onboarding_pending`,
+   *  `compile_in_progress`) or a 429 changed nothing. */
+  applyOnboarding(monitorId: string, marks: OnboardingMarks): Promise<ApplyResult>
+  /** What a monitor created with `inputs` proposes to add, or added, newest first. */
+  expansions(monitorId: string, options?: MonitorExpansionsOptions): Promise<ExpansionsPage>
+  /** Use a proposed addition: an item becomes active, a category joins the schema. */
+  confirmExpansion(
+    monitorId: string,
+    expansionId: string,
+    fields?: ExpansionConfirmFields,
+  ): Promise<ApplyResult>
+  /** Remove an addition: it is never proposed again, and the facts it brought are taken back. */
+  revertExpansion(
+    monitorId: string,
+    expansionId: string,
+    options?: { signal?: AbortSignal },
+  ): Promise<ApplyResult>
+  /** Every kind and category the monitor collects, and how it finds people. */
+  dataMap(monitorId: string, options?: { signal?: AbortSignal }): Promise<DataMap>
 }

@@ -45,9 +45,16 @@ export type {
   AgentCompileState,
   AgentDocument,
   AgentState,
+  ApplyResult,
   ChangeRecord,
   ChangesPage,
   ChangeSubject,
+  CompanySheet,
+  DataMap,
+  ExpansionConfirmFields,
+  ExpansionRecord,
+  ExpansionsPage,
+  FeedbackResult,
   FetchOptions,
   FetchResponse,
   FetchResult,
@@ -55,12 +62,20 @@ export type {
   Monitor,
   MonitorChangesOptions,
   MonitorCreateOptions,
+  MonitorExpansionsOptions,
+  MonitorFeedbackOptions,
+  MonitorInputs,
   MonitorIterateChangesOptions,
   MonitorListOptions,
   MonitorPage,
   MonitorPollOptions,
   MonitorsResource,
   MonitorUpdateOptions,
+  OnboardingCandidate,
+  OnboardingCompany,
+  OnboardingExample,
+  OnboardingMarks,
+  OnboardingSheet,
   ProviderInfo,
   ProviderRun,
   SearchDefaults,
@@ -95,7 +110,9 @@ export class Telem {
   /** The session read surface: `list` and `results(id)`. */
   readonly sessions: SessionsResource
   /** Monitors: `create`, `list`, `listPage`, `get`, `update` and `delete`, the agent reads
-   *  `agent`, `changes` and `iterateChanges`, and the deprecated `poll`. */
+   *  `agent`, `changes` and `iterateChanges`, `feedback`, what a monitor created with
+   *  `inputs` collects (`onboarding`, `applyOnboarding`, `expansions`, `confirmExpansion`,
+   *  `revertExpansion`, `dataMap`), and the deprecated `poll`. */
   readonly monitors: MonitorsResource
 
   readonly #config: ResolvedConfig
