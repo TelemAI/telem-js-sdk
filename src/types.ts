@@ -373,8 +373,16 @@ export type MonitorCreateOptions = MonitorCreateCommonOptions &
          *  collect about them. Such a monitor has the agent. Read what the first read of
          *  each company found with `monitors.onboarding`. */
         inputs?: MonitorInputs
+        /** The fields every result has: `"article"` (`headline`, `publication`,
+         *  `published_at`, `summary`, `kind`), `"person"`, `"company"` or `"listing"`. The
+         *  agent keeps them as they are and may add more. Leave it out and the agent picks
+         *  the fields from the query. Refused with `inputs`. */
+        preset?: MonitorPreset
       }
   )
+
+/** The `preset` of `monitors.create`. */
+export type MonitorPreset = "article" | "person" | "company" | "listing"
 
 /** Options for `monitors.update`. Send at least one field. */
 export type MonitorUpdateOptions = {

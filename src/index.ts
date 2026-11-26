@@ -69,6 +69,7 @@ export type {
   MonitorListOptions,
   MonitorPage,
   MonitorPollOptions,
+  MonitorPreset,
   MonitorsResource,
   MonitorUpdateOptions,
   OnboardingCandidate,

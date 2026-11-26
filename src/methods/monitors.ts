@@ -62,6 +62,7 @@ type CreateInput = MonitorCreateCommonOptions & {
   ttl?: string | null
   agent?: boolean | null
   inputs?: MonitorInputs | null
+  preset?: string | null
 }
 
 const POLL_DEPRECATED =
@@ -361,6 +362,7 @@ export function createMonitors(config: ResolvedConfig): MonitorsResource {
       // Sent as given: the router checks the companies and the schema.
       if (given.inputs != null) body.inputs = given.inputs
       body.agent = agent
+      if (given.preset != null) body.preset = given.preset
       // A retry after a lost reply would create a second, billed monitor. Only a 429
       // is safe: the router created nothing then.
       const data = await request(config, "POST", "/v1/monitors", body, given.signal, "rate_limit").catch(
