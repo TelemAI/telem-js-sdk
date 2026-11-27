@@ -37,6 +37,15 @@ export function asArray(value: unknown): any[] {
   return Array.isArray(value) ? value : []
 }
 
+// An optional result field of the wrong type reads as null on that row only, so one
+// malformed value never reaches a caller as a type it was not promised.
+export const optString = (v: unknown): string | null => (typeof v === "string" ? v : null)
+export const optStrings = (v: unknown): string[] | null =>
+  Array.isArray(v) && v.every((x) => typeof x === "string") ? v : null
+export const optInt = (v: unknown): number | null => (Number.isInteger(v) ? (v as number) : null)
+export const optBool = (v: unknown): boolean | null => (typeof v === "boolean" ? v : null)
+export const optObject = (v: unknown): Payload | null => (isObject(v) ? v : null)
+
 /** An argument rejected before anything was sent, so there is no status. */
 export function invalidRequest(message: string): TelemError {
   return new TelemError(message, { code: "invalid_request" })

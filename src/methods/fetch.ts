@@ -6,7 +6,18 @@
 // null`, and the key may be absent entirely. Neither shape may raise.
 
 import type { ResolvedConfig } from "../config.ts"
-import { asArray, asObject, isObject, request, stringList, type Payload } from "../http.ts"
+import {
+  asArray,
+  asObject,
+  isObject,
+  optBool,
+  optInt,
+  optObject,
+  optString,
+  request,
+  stringList,
+  type Payload,
+} from "../http.ts"
 import { wireMetadata } from "../trajectory.ts"
 import type { FetchOptions, FetchResponse, FetchResult } from "../types.ts"
 
@@ -56,23 +67,24 @@ function fetchBody(
 function fetchResult(run: Payload): FetchResult {
   const row = asObject(asArray(asObject(run.output_payload).fetched_results)[0])
   return {
-    url: row.url || run.query || "",
-    canonicalUrl: row.canonical_url ?? null,
-    title: row.title || "",
-    status: row.status || run.status || "",
-    content: row.content ?? null,
-    contentTruncated: row.content_truncated ?? null,
-    contentFormat: row.content_format ?? null,
-    contentSha256: row.content_sha256 ?? null,
-    contentType: row.content_type ?? null,
-    contentRef: row.content_ref ?? null,
-    provider: row.provider || "",
-    httpStatus: row.http_status ?? null,
-    fetchedAt: row.fetched_at ?? null,
-    // Key presence, not truthiness: a row that really reported 0 ms keeps its 0.
-    latencyMs: ("latency_ms" in row ? row.latency_ms : run.latency_ms) ?? null,
-    providerMetadata: row.provider_metadata ?? null,
-    error: row.error || run.error || null,
+    url: optString(row.url) || optString(run.query) || "",
+    canonicalUrl: optString(row.canonical_url),
+    title: optString(row.title) || "",
+    status: optString(row.status) || optString(run.status) || "",
+    content: optString(row.content),
+    contentTruncated: optBool(row.content_truncated),
+    contentFormat: optString(row.content_format),
+    contentSha256: optString(row.content_sha256),
+    contentType: optString(row.content_type),
+    contentRef: optObject(row.content_ref),
+    provider: optString(row.provider) || "",
+    httpStatus: optInt(row.http_status),
+    fetchedAt: optString(row.fetched_at),
+    // Key presence, not truthiness: a row that really reported 0 ms keeps its 0. A
+    // malformed row value falls back to the run's, as a missing one does.
+    latencyMs: optInt(row.latency_ms) ?? optInt(run.latency_ms),
+    providerMetadata: optObject(row.provider_metadata),
+    error: optObject(row.error) || optObject(run.error) || null,
     batchIndex: run.batch_index ?? 0,
     raw: row,
   }

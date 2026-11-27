@@ -10,7 +10,19 @@
 
 import type { ResolvedConfig } from "../config.ts"
 import { TelemError } from "../errors.ts"
-import { asArray, asObject, invalidRequest, isObject, request, stringList, type Payload } from "../http.ts"
+import {
+  asArray,
+  asObject,
+  invalidRequest,
+  isObject,
+  optInt,
+  optObject,
+  optString,
+  optStrings,
+  request,
+  stringList,
+  type Payload,
+} from "../http.ts"
 import { wireMetadata } from "../trajectory.ts"
 import type {
   ProviderRun,
@@ -178,21 +190,21 @@ function assertV2(data: unknown): void {
  *  run's provenance is written LAST, so a row key named like a run key cannot win. */
 function searchResults(envelope: Payload, provider: string): SearchResult[] {
   return asArray(envelope.results).filter(isObject).map((row) => ({
-    url: row.url || "",
-    title: row.title || "",
-    summary: row.summary ?? null,
-    excerpt: row.excerpt ?? null,
-    fullContent: row.full_content ?? null,
-    publishDate: row.publish_date ?? null,
-    rank: row.rank ?? null,
-    thumbnail: row.thumbnail ?? null,
-    favicon: row.favicon ?? null,
-    source: row.source ?? null,
-    enrichments: row.enrichments ?? null,
-    fetchMeta: row.fetch_meta ?? null,
-    imageUrl: row.image_url ?? null,
-    imageWidth: row.image_width ?? null,
-    imageHeight: row.image_height ?? null,
+    url: optString(row.url) || "",
+    title: optString(row.title) || "",
+    summary: optString(row.summary),
+    excerpt: optStrings(row.excerpt),
+    fullContent: optObject(row.full_content),
+    publishDate: optString(row.publish_date),
+    rank: optInt(row.rank),
+    thumbnail: optString(row.thumbnail),
+    favicon: optString(row.favicon),
+    source: optObject(row.source),
+    enrichments: optObject(row.enrichments),
+    fetchMeta: optObject(row.fetch_meta),
+    imageUrl: optString(row.image_url),
+    imageWidth: optInt(row.image_width),
+    imageHeight: optInt(row.image_height),
     provider,
     raw: row,
   }))
