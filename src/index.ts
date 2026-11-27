@@ -49,6 +49,8 @@ export type {
   ChangeRecord,
   ChangesPage,
   ChangeSubject,
+  CompanyList,
+  CompanyListRow,
   CompanySheet,
   DataMap,
   ExpansionConfirmFields,
@@ -63,6 +65,7 @@ export type {
   MonitorChangesAcrossOptions,
   MonitorChangesAcrossScope,
   MonitorChangesOptions,
+  MonitorCompaniesOptions,
   MonitorCreateOptions,
   MonitorExpansionsOptions,
   MonitorFeedbackOptions,
@@ -117,7 +120,7 @@ export class Telem {
    *  `agent`, `changes` and `iterateChanges`, the read across monitors `changesAcross` and
    *  `iterateChangesAcross`, `feedback`, what a monitor created with
    *  `inputs` collects (`onboarding`, `applyOnboarding`, `expansions`, `confirmExpansion`,
-   *  `revertExpansion`, `dataMap`), and the deprecated `poll`. */
+   *  `revertExpansion`, `dataMap`, `companies`), and the deprecated `poll`. */
   readonly monitors: MonitorsResource
 
   readonly #config: ResolvedConfig

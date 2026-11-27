@@ -18,7 +18,7 @@
 //
 // A monitor created with `inputs` watches a list of companies: `onboarding` and
 // `applyOnboarding`, `expansions` with `confirmExpansion` and `revertExpansion`, and
-// `dataMap`. `feedback` labels a fact of any monitor with an agent. The reads retry like
+// `dataMap` and `companies`. `feedback` labels a fact of any monitor with an agent. The reads retry like
 // any GET; the writes queue a change, so they retry a 429 only.
 //
 // A create sends an `Idempotency-Key`, the same on every retry, so it retries a 429, a
@@ -35,6 +35,8 @@ import type {
   ApplyResult,
   ChangeRecord,
   ChangesPage,
+  CompanyList,
+  CompanyListRow,
   CompanySheet,
   DataMap,
   ExpansionRecord,
@@ -44,6 +46,7 @@ import type {
   MonitorChangesAcrossOptions,
   MonitorChangesAcrossScope,
   MonitorChangesOptions,
+  MonitorCompaniesOptions,
   MonitorCreateCommonOptions,
   MonitorInputs,
   MonitorListOptions,
@@ -305,6 +308,44 @@ function dataMapFrom(body: unknown): DataMap {
     note: stringOrNull(data.note),
     raw: data,
   }
+}
+
+function companyFrom(entry: Payload): CompanyListRow {
+  return {
+    companyId: String(entry.company_id ?? ""),
+    name: String(entry.name ?? ""),
+    domain: String(entry.domain ?? ""),
+    priority: entry.priority === true,
+    aliases: asArray(entry.aliases).map(String),
+    ticker: String(entry.ticker ?? ""),
+    xHandle: String(entry.x_handle ?? ""),
+    newsroomUrl: String(entry.newsroom_url ?? ""),
+    teamPage: String(entry.team_page ?? ""),
+    tier: String(entry.tier ?? ""),
+    rank: Number(entry.rank ?? 0),
+    raw: entry,
+  }
+}
+
+function companyListFrom(body: unknown): CompanyList {
+  const data = asObject(body)
+  return {
+    total: Number(data.total ?? 0),
+    priorityCount: Number(data.priority_count ?? 0),
+    offset: Number(data.offset ?? 0),
+    limit: Number(data.limit ?? 0),
+    nextOffset: typeof data.next_offset === "number" ? data.next_offset : null,
+    companies: asArray(data.companies).filter(isObject).map(companyFrom),
+    raw: data,
+  }
+}
+
+function companiesQuery(options: MonitorCompaniesOptions): string {
+  const params = new URLSearchParams()
+  if (options.offset !== undefined) params.set("offset", String(options.offset))
+  if (options.limit !== undefined) params.set("limit", String(options.limit))
+  const query = params.toString()
+  return query ? `?${query}` : ""
 }
 
 function listQuery(options: MonitorListOptions): string {
@@ -581,6 +622,12 @@ export function createMonitors(config: ResolvedConfig): MonitorsResource {
     async dataMap(monitorId, options = {}) {
       const route = path(monitorId, "/agent/data-map")
       return dataMapFrom(await request(config, "GET", route, undefined, options.signal))
+    },
+
+    /** One page of the monitor's companies, in rank order. */
+    async companies(monitorId, options = {}) {
+      const route = `${path(monitorId, "/agent/companies")}${companiesQuery(options)}`
+      return companyListFrom(await request(config, "GET", route, undefined, options.signal))
     },
   }
 }

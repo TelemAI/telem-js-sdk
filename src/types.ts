@@ -804,6 +804,48 @@ export type DataMap = {
   raw: Json
 }
 
+/** One company of `monitors.companies`. */
+export type CompanyListRow = {
+  companyId: string
+  name: string
+  domain: string
+  /** Whether the company is marked priority: it is checked on every routine run. */
+  priority: boolean
+  aliases: string[]
+  ticker: string
+  xHandle: string
+  newsroomUrl: string
+  teamPage: string
+  /** `daily`, `weekly` or `off`, as you gave it; empty when its rank decides. */
+  tier: string
+  /** Its place among the monitor's companies, from 1. */
+  rank: number
+  raw: Json
+}
+
+/** One page of `monitors.companies`, in rank order. */
+export type CompanyList = {
+  /** All the companies the monitor follows. */
+  total: number
+  /** How many of them are marked priority. */
+  priorityCount: number
+  offset: number
+  limit: number
+  /** Pass it as `offset` for the next page; `null` on the last page. */
+  nextOffset: number | null
+  companies: CompanyListRow[]
+  raw: Json
+}
+
+/** Options for `monitors.companies`. */
+export type MonitorCompaniesOptions = {
+  /** How many companies to skip, from the top (server default 0). */
+  offset?: number
+  /** How many companies to return (server default 100, maximum 1,000). */
+  limit?: number
+  signal?: AbortSignal
+}
+
 /** The `telem.monitors` namespace. */
 export type MonitorsResource = {
   /** Create a monitor. It has the agent unless `agent` is `false`, and with the agent
@@ -861,4 +903,8 @@ export type MonitorsResource = {
   ): Promise<ApplyResult>
   /** Every kind and category the monitor collects, and how it finds people. */
   dataMap(monitorId: string, options?: { signal?: AbortSignal }): Promise<DataMap>
+  /** One page of the companies a monitor created with `inputs` follows, in rank order. A
+   *  monitor created without `inputs` answers 409 (`not_an_engine_monitor`), and one created
+   *  with `agent: false` answers 404. */
+  companies(monitorId: string, options?: MonitorCompaniesOptions): Promise<CompanyList>
 }
