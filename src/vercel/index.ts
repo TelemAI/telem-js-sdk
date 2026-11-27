@@ -102,13 +102,14 @@ export type TelemVercelSearchInput = {
 }
 export type TelemVercelFetchInput = { url: string; goal?: string }
 /** The default `render.search`: the top results, compact. `published` is there only
- *  when the result has a publication date. */
+ *  when the result has a publication date, `image` only on an image search's row. */
 export type TelemVercelSearchOutput = Array<{
   provider: string
   title: string
   url: string
   summary: string | null
   published?: string
+  image?: { url: string; width?: number; height?: number }
 }>
 /** The default `render.fetch`: one page's status, error and text. */
 export type TelemVercelFetchOutput = { status: string | undefined; error: unknown; content: string }
@@ -269,9 +270,19 @@ async function turnAnchor(messages: readonly unknown[], windowId: string): Promi
 function compact(response: SearchResponse): TelemVercelSearchOutput {
   return response.results
     .slice(0, RESULT_CAP)
-    .map(({ provider, title, url, summary, publishDate }) => {
+    .map(({ provider, title, url, summary, publishDate, imageUrl, imageWidth, imageHeight }) => {
       const published = publishDate?.trim()
-      return published ? { provider, title, url, summary, published } : { provider, title, url, summary }
+      const row: TelemVercelSearchOutput[number] = published
+        ? { provider, title, url, summary, published }
+        : { provider, title, url, summary }
+      const image = typeof imageUrl === "string" ? imageUrl.trim() : ""
+      if (image) {
+        const whole = (n: unknown) => Number.isInteger(n) && (n as number) > 0
+        row.image = whole(imageWidth) && whole(imageHeight)
+          ? { url: image, width: imageWidth as number, height: imageHeight as number }
+          : { url: image }
+      }
+      return row
     })
 }
 
@@ -304,8 +315,10 @@ const SEARCH_SCHEMA = jsonSchema<TelemVercelSearchInput>({
     topic: {
       type: "string",
       description:
-        "Optional. Set it only when the answer must come from one site: linkedin, reddit, " +
-        "or x (twitter is also accepted). Leave it unset otherwise.",
+        "Optional. Set it to linkedin, reddit or x (twitter is also accepted) only when the " +
+        "answer must come from that site, or to images for an image search: at most 20 results, " +
+        "no published_after or published_before, and each result adds the image URL and its size. " +
+        "Leave it unset otherwise.",
     },
     published_after: {
       type: "string",
@@ -563,7 +576,8 @@ export function createTelemVercelAgent(options: TelemVercelAgentOptions): TelemV
     telem_search: {
       description:
         "Search the public web. One query per call; returns the top results with provider, " +
-        "title, url, summary and, when known, publication date. Use telem_fetch to read a page in full.",
+        "title, url, summary and, when known, publication date (and an image search's image). " +
+        "Use telem_fetch to read a page in full.",
       inputSchema: SEARCH_SCHEMA,
       execute: async (input, execution) => {
         // The model's per-call topic, trimmed, beats TELEM_TOPIC. The routing mode is
