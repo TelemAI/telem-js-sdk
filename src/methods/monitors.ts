@@ -5,7 +5,9 @@
 // end, so its create needs a `ttl`: one without it is refused before anything is sent.
 //
 // The agent reads (`agent`, `changes`, `iterateChanges`) are GETs on
-// `/v1/monitors/{id}/agent`. They change nothing, so they retry like any other GET.
+// `/v1/monitors/{id}/agent`, and the read across monitors (`changesAcross`,
+// `iterateChangesAcross`) is `GET /v1/monitors/changes`. They change nothing, so they
+// retry like any other GET.
 // Like every other response here they are mapped to camelCase with the router's own
 // object kept in `raw`; `before` and `after` of a change are the exception, passed
 // through as the router sent them.
@@ -39,11 +41,14 @@ import type {
   ExpansionsPage,
   FeedbackResult,
   Monitor,
+  MonitorChangesAcrossOptions,
+  MonitorChangesAcrossScope,
   MonitorChangesOptions,
   MonitorCreateCommonOptions,
   MonitorInputs,
   MonitorListOptions,
   MonitorPage,
+  MonitorsChangesPage,
   MonitorsResource,
   OnboardingCandidate,
   OnboardingCompany,
@@ -175,6 +180,18 @@ function changesPageFrom(body: unknown): ChangesPage {
     changes: asArray(data.changes).filter(isObject).map(changeRecordFrom),
     nextCursor: Number(data.next_cursor ?? 0),
     watermark: Number(data.watermark ?? 0),
+  }
+}
+
+function monitorsChangesPageFrom(body: unknown): MonitorsChangesPage {
+  const data = asObject(body)
+  return {
+    changes: asArray(data.changes).filter(isObject).map(changeRecordFrom),
+    nextCursor: typeof data.next_cursor === "string" ? data.next_cursor : "",
+    more: data.more === true,
+    monitors: asArray(data.monitors).map(String),
+    pending: asArray(data.pending).map(String),
+    skipped: asArray(data.skipped).map(String),
   }
 }
 
@@ -313,11 +330,31 @@ function sinceParam(since: string | Date): string {
 function changesQuery(options: MonitorChangesOptions): string {
   const params = new URLSearchParams()
   if (options.cursor !== undefined) params.set("cursor", String(options.cursor))
+  return readQuery(params, options)
+}
+
+function readQuery(params: URLSearchParams, options: MonitorChangesOptions | MonitorChangesAcrossOptions): string {
   if (options.since !== undefined) params.set("since", sinceParam(options.since))
   if (options.kinds !== undefined) params.set("kinds", options.kinds.join(","))
   if (options.limit !== undefined) params.set("limit", String(options.limit))
   const query = params.toString()
   return query ? `?${query}` : ""
+}
+
+/** `tag` or `ids`, one of them, refused unsent otherwise. A JavaScript caller can send
+ *  anything: an `ids` string goes out as given, not split into letters. */
+function acrossQuery(scope: MonitorChangesAcrossScope, options: MonitorChangesAcrossOptions): string {
+  const { tag, ids } = asObject(scope) as { tag?: unknown; ids?: unknown }
+  if ((tag == null) === (ids == null)) throw invalidRequest("send tag or ids, one of them")
+  const params = new URLSearchParams()
+  if (tag != null) params.set("tag", String(tag))
+  else {
+    const named = typeof ids === "string" ? ids : asArray(ids).join(",")
+    if (!named) throw invalidRequest("ids needs at least one monitor id")
+    params.set("ids", named)
+  }
+  if (options.cursor !== undefined) params.set("cursor", options.cursor)
+  return readQuery(params, options)
 }
 
 /** Bind the monitors resource to one client's configuration. */
@@ -340,6 +377,15 @@ export function createMonitors(config: ResolvedConfig): MonitorsResource {
   const changes = async (monitorId: string, options: MonitorChangesOptions = {}): Promise<ChangesPage> => {
     const route = `${path(monitorId, "/agent/changes")}${changesQuery(options)}`
     return changesPageFrom(await request(config, "GET", route, undefined, options.signal))
+  }
+
+  /** One page of the changes of up to 100 monitors, by `tag` or by `ids`. */
+  const changesAcross = async (
+    scope: MonitorChangesAcrossScope,
+    options: MonitorChangesAcrossOptions = {},
+  ): Promise<MonitorsChangesPage> => {
+    const route = `/v1/monitors/changes${acrossQuery(scope, options)}`
+    return monitorsChangesPageFrom(await request(config, "GET", route, undefined, options.signal))
   }
 
   /** `…/agent/expansions/{id}:confirm` or `:revert`, the id one encoded path segment. */
@@ -471,6 +517,24 @@ export function createMonitors(config: ResolvedConfig): MonitorsResource {
         // on the same page for ever.
         if (!page.changes.length || page.nextCursor <= cursor || page.nextCursor >= page.watermark) return
         cursor = page.nextCursor
+      }
+    },
+
+    /** One page of the changes of up to 100 monitors. Keep `nextCursor` and pass it back as `cursor`. */
+    changesAcross,
+
+    /** The changes of up to 100 monitors, page by page while `more` is true. `since` goes
+     *  with the first page only; the scope, `kinds` and `limit` with every page. */
+    async *iterateChangesAcross(scope, options = {}) {
+      let { cursor, since } = options
+      for (;;) {
+        const page = await changesAcross(scope, { ...options, cursor, since })
+        for (const change of page.changes) yield change
+        // An empty page, or a cursor that did not move, ends the walk too: a router that
+        // stalls cannot hold this loop on the same page for ever.
+        if (!page.more || !page.changes.length || page.nextCursor === cursor) return
+        cursor = page.nextCursor
+        since = undefined
       }
     },
 

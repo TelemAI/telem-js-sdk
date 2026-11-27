@@ -560,6 +560,53 @@ export type MonitorChangesOptions = {
   signal?: AbortSignal
 }
 
+/** The monitors of `monitors.changesAcross`: your key's own live monitors that carry
+ *  `tag`, or the monitors of `ids`, one of the two. */
+export type MonitorChangesAcrossScope =
+  | {
+      /** Your key's own live monitors that carry this tag. One with no agent is in `skipped`. */
+      tag: string
+      ids?: never
+    }
+  | {
+      /** These monitors, at most 100: any monitor with an agent in your key's project, ended
+       *  ones too. One that is not is a 404 for the whole read. */
+      ids: string[]
+      tag?: never
+    }
+
+/** Options for `monitors.changesAcross` and `monitors.iterateChangesAcross`. */
+export type MonitorChangesAcrossOptions = {
+  /** The `nextCursor` of the page before. If you leave it out, the read starts at the
+   *  first change. Do not send it with `since`. */
+  cursor?: string
+  /** Read from this time on, as in `changes`. A monitor that joins later starts at the
+   *  same time. Do not send it with `cursor`. */
+  since?: string | Date
+  /** Only these kinds of change, as in `changes`. */
+  kinds?: string[]
+  /** How many changes to return (server default 200, maximum 500). */
+  limit?: number
+  signal?: AbortSignal
+}
+
+/** One page of `monitors.changesAcross`. Ordered by `seq`, but a monitor that joins later
+ *  or catches up can bring lower seqs on a later page: dedupe by `seq`. */
+export type MonitorsChangesPage = {
+  changes: ChangeRecord[]
+  /** Keep this and pass it as `cursor` to read on. It is opaque, and holds the place of
+   *  every monitor of the read, the `pending` ones too. */
+  nextCursor: string
+  /** `true` only for a full page: read on now with `nextCursor`. */
+  more: boolean
+  /** The monitors read for this page. */
+  monitors: string[]
+  /** The monitors not read on this call. A later call with `nextCursor` reads them. */
+  pending: string[]
+  /** The monitors of the tag that have no agent. */
+  skipped: string[]
+}
+
 /** Options for `monitors.iterateChanges`. */
 export type MonitorIterateChangesOptions = {
   /** Read the changes after this `seq`. If you leave it out, the walk starts at the
@@ -780,6 +827,15 @@ export type MonitorsResource = {
   iterateChanges(
     monitorId: string,
     options?: MonitorIterateChangesOptions,
+  ): AsyncGenerator<ChangeRecord, void, undefined>
+  /** One page of the changes of up to 100 monitors, by `tag` or by `ids`. Keep `nextCursor`
+   *  and pass it back as `cursor` with the same scope; read on now while `more` is true. */
+  changesAcross(scope: MonitorChangesAcrossScope, options?: MonitorChangesAcrossOptions): Promise<MonitorsChangesPage>
+  /** The changes of up to 100 monitors, page by page while `more` is true, in one pass. It
+   *  cannot hand back the cursor: to keep your place, page with `changesAcross`. */
+  iterateChangesAcross(
+    scope: MonitorChangesAcrossScope,
+    options?: MonitorChangesAcrossOptions,
   ): AsyncGenerator<ChangeRecord, void, undefined>
   /** Label one fact of the monitor. With `category`, a refuted fact of a monitor created
    *  with `inputs` is filed under that category. */

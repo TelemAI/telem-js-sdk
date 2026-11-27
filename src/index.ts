@@ -60,6 +60,8 @@ export type {
   FetchResult,
   Json,
   Monitor,
+  MonitorChangesAcrossOptions,
+  MonitorChangesAcrossScope,
   MonitorChangesOptions,
   MonitorCreateOptions,
   MonitorExpansionsOptions,
@@ -70,6 +72,7 @@ export type {
   MonitorPage,
   MonitorPollOptions,
   MonitorPreset,
+  MonitorsChangesPage,
   MonitorsResource,
   MonitorUpdateOptions,
   OnboardingCandidate,
@@ -111,7 +114,8 @@ export class Telem {
   /** The session read surface: `list` and `results(id)`. */
   readonly sessions: SessionsResource
   /** Monitors: `create`, `list`, `listPage`, `get`, `update` and `delete`, the agent reads
-   *  `agent`, `changes` and `iterateChanges`, `feedback`, what a monitor created with
+   *  `agent`, `changes` and `iterateChanges`, the read across monitors `changesAcross` and
+   *  `iterateChangesAcross`, `feedback`, what a monitor created with
    *  `inputs` collects (`onboarding`, `applyOnboarding`, `expansions`, `confirmExpansion`,
    *  `revertExpansion`, `dataMap`), and the deprecated `poll`. */
   readonly monitors: MonitorsResource
