@@ -363,7 +363,15 @@ export function createMonitors(config: ResolvedConfig): MonitorsResource {
       if (given.webhookUrl !== undefined) body.webhook_url = given.webhookUrl
       if (given.ttl !== undefined) body.ttl = given.ttl
       // Sent as given: the router checks the companies and the schema.
-      if (given.inputs != null) body.inputs = given.inputs
+      if (given.inputs != null) {
+        body.inputs = given.inputs
+        // Unpublished: the client's default vertical, on inputs that set none. A copy,
+        // so the caller's object is never changed. Unset adds nothing.
+        const vertical = config.defaults.vertical
+        if (vertical !== undefined && !("vertical" in given.inputs)) {
+          body.inputs = { ...given.inputs, vertical }
+        }
+      }
       body.agent = agent
       if (given.preset != null) body.preset = given.preset
       if (given.tags != null) body.tags = given.tags

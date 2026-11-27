@@ -82,6 +82,10 @@ export type SearchOptions = {
   autoRouting?: string
   maxRoutingProviders?: number
   topic?: string
+  // Unpublished (2026-11-27): the search vertical, sent as `search.vertical` ("health",
+  // "general"; the router 400s an unknown name). Wins over the client default. Not
+  // documented until the router accepts the field.
+  vertical?: string
   /** Only results published on or after this date or date-time: an ISO 8601 string
    *  (no time zone means UTC) or a `Date`. Results with no known date are kept.
    *  Per-call only, like the two below. */
@@ -123,6 +127,7 @@ export type SearchDefaults = Pick<
   | "autoRouting"
   | "maxRoutingProviders"
   | "topic"
+  | "vertical"
 >
 
 export type FetchOptions = {
@@ -145,6 +150,10 @@ export type FetchOptions = {
 }
 
 export type TelemOptions = SearchDefaults & {
+  // Unpublished: the canonical name of the `vertical` client default (both are
+  // accepted; two different values are refused). Falls back to TELEM_VERTICAL. It is
+  // also sent as `inputs.vertical` on a monitor create with `inputs` that sets none.
+  defaultVertical?: string
   apiKey?: string
   baseUrl?: string
   timeoutMs?: number
@@ -349,6 +358,8 @@ export type MonitorInputs = {
   window_days?: number
   /** Look each company up before its first read, to find its other names and pages. */
   seed?: boolean
+  // Unpublished: the search vertical of the monitor; wins over the client default.
+  vertical?: string
 }
 
 // The monitor with the agent comes last: TypeScript checks a union member by member and

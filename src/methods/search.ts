@@ -100,6 +100,9 @@ export function searchBlock(defaults: SearchDefaults, options: SearchOptions): P
   if (options.publishedAfter !== undefined) block.published_after = isoDate(options.publishedAfter)
   if (options.publishedBefore !== undefined) block.published_before = isoDate(options.publishedBefore)
   if (options.includeDomains !== undefined) block.include_domains = options.includeDomains
+  // Unpublished; see config.ts. A call value wins over the client default.
+  const vertical = options.vertical ?? defaults.vertical
+  if (vertical !== undefined) block.vertical = vertical
   return block
 }
 

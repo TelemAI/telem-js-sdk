@@ -144,6 +144,23 @@ export function resolveConfig(options: string | TelemOptions): ResolvedConfig {
     baseUrl = baseUrl ?? credentials.baseUrl
   }
 
+  // Unpublished (2026-11-27): the search vertical. `defaultVertical` is canonical and
+  // `vertical` an alias; two different values are refused. Unset, nothing is sent and
+  // every body is byte-identical to before. Deliberately not a config-file key or a
+  // tool argument: a router that predates the field rejects a request carrying it.
+  // TELEM_VERTICAL makes EVERY search and monitor create send it: never set it in any
+  // environment until the router that accepts `vertical` is live.
+  if (
+    opts.defaultVertical !== undefined &&
+    opts.vertical !== undefined &&
+    opts.defaultVertical !== opts.vertical
+  ) {
+    throw invalidOption(
+      `vertical ${JSON.stringify(opts.vertical)} and defaultVertical ${JSON.stringify(opts.defaultVertical)} are the same option; pass one of them`,
+    )
+  }
+  const vertical = opts.defaultVertical ?? opts.vertical ?? (trimBlank(env.TELEM_VERTICAL ?? "") || undefined)
+
   const resolvedBaseUrl = (baseUrl || DEFAULT_BASE_URL).replace(/\/+$/, "")
   let scheme: string | undefined
   try {
@@ -176,6 +193,7 @@ export function resolveConfig(options: string | TelemOptions): ResolvedConfig {
       autoRouting: opts.autoRouting ?? (trimBlank(env.TELEM_AUTO_ROUTING ?? "") || undefined),
       maxRoutingProviders: opts.maxRoutingProviders ?? intEnv(env.TELEM_MAX_ROUTING_PROVIDERS),
       topic: opts.topic ?? (trimBlank(env.TELEM_TOPIC ?? "") || undefined),
+      vertical,
     },
     // Fetch defaults: env var only, parsed as the shared option table parses it (CSV,
     // a trimmed name, a "1"-only flag); the tier is lowercased, as the agent plugins
