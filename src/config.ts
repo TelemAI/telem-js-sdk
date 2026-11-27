@@ -18,6 +18,11 @@ export const DEFAULT_BASE_URL = "https://router.telem.ai"
 export const DEFAULT_TIMEOUT_MS = 60_000
 /** Attempts after the first. */
 export const DEFAULT_MAX_RETRIES = 2
+/** How long a monitor create, which sends an `Idempotency-Key`, keeps retrying from its
+ *  first attempt: a burst of 64 creates on a 60/min key drains at about one a second.
+ *  The retry count is a backstop. */
+export const CREATE_RETRY_BUDGET_MS = 120_000
+export const DEFAULT_CREATE_MAX_RETRIES = 60
 
 type Env = Record<string, string | undefined>
 
@@ -27,6 +32,8 @@ export type ResolvedConfig = {
   baseUrl: string
   timeoutMs: number
   maxRetries: number
+  /** `maxRetries` when it was given, else `DEFAULT_CREATE_MAX_RETRIES`. */
+  createMaxRetries: number
   userAgent: string
   /** The transport: the injected one, else the platform `fetch`. */
   fetch: typeof globalThis.fetch
@@ -177,6 +184,7 @@ export function resolveConfig(options: string | TelemOptions): ResolvedConfig {
     baseUrl: resolvedBaseUrl,
     timeoutMs,
     maxRetries,
+    createMaxRetries: opts.maxRetries ?? DEFAULT_CREATE_MAX_RETRIES,
     userAgent: opts.userAgent || `telem-sdk-js/${VERSION}`,
     fetch: send,
     sleep: opts.sleep ?? ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms))),

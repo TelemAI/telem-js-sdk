@@ -157,6 +157,8 @@ export type TelemOptions = SearchDefaults & {
   apiKey?: string
   baseUrl?: string
   timeoutMs?: number
+  /** Retries after the first attempt: 2 by default. `monitors.create` retries for up
+   *  to about 120 s instead, at most 60 times. A value you pass caps both. */
   maxRetries?: number
   /** Injectable transport — embedded runtimes, edge workers, and tests. */
   fetch?: typeof globalThis.fetch
@@ -335,6 +337,9 @@ export type MonitorCreateCommonOptions = {
    *  strips and lower-cases each one, which must then be 1 to 32 of `a-z`, `0-9`, `-` and
    *  `_`, starting with a letter or digit, and drops repeats. Anything else is a 422. */
   tags?: string[]
+  /** The `Idempotency-Key` header, 1 to 255 visible ASCII characters. By default each
+   *  call makes a new one. Pass your own to retry a create across a restart. */
+  idempotencyKey?: string
   signal?: AbortSignal
 }
 

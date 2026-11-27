@@ -17,9 +17,14 @@
 // A monitor created with `inputs` watches a list of companies: `onboarding` and
 // `applyOnboarding`, `expansions` with `confirmExpansion` and `revertExpansion`, and
 // `dataMap`. `feedback` labels a fact of any monitor with an agent. The reads retry like
-// any GET; the writes queue a change, so they retry a 429 only, as a create does.
+// any GET; the writes queue a change, so they retry a 429 only.
+//
+// A create sends an `Idempotency-Key`, the same on every retry, so it retries a 429, a
+// 409 `idempotency_in_progress`, a network failure and a timeout, for up to about 120 s
+// with jittered waits: for 24 hours Telem answers the key with the first monitor.
+// Under another API key it is a new create.
 
-import type { ResolvedConfig } from "../config.ts"
+import { CREATE_RETRY_BUDGET_MS, type ResolvedConfig } from "../config.ts"
 import { TimeoutError } from "../errors.ts"
 import { asArray, asObject, invalidRequest, isObject, request, type Payload } from "../http.ts"
 import type {
@@ -65,6 +70,8 @@ type CreateInput = MonitorCreateCommonOptions & {
   preset?: string | null
   tags?: string[] | null
 }
+
+const IDEMPOTENCY_KEY = /^[\x21-\x7e]{1,255}$/
 
 const POLL_DEPRECATED =
   "@telemai/sdk: monitors.poll() is deprecated: read what the monitor agent finds with " +
@@ -341,7 +348,7 @@ export function createMonitors(config: ResolvedConfig): MonitorsResource {
     return path(monitorId, `/agent/expansions/${encodeURIComponent(expansionId)}:${action}`)
   }
 
-  /** A write that queues a change: like a create, only a 429 is sent again. */
+  /** A write that queues a change: only a 429 is sent again. */
   const write = async (route: string, body: Payload, signal?: AbortSignal): Promise<unknown> =>
     request(config, "POST", route, body, signal, "rate_limit")
 
@@ -352,6 +359,10 @@ export function createMonitors(config: ResolvedConfig): MonitorsResource {
       // A missing or null agent is the default: on.
       const agent = given.agent == null ? true : Boolean(given.agent)
       if (agent && !given.ttl) throw invalidRequest(given.inputs == null ? NEEDS_TTL : NEEDS_TTL_INPUTS)
+      const key = given.idempotencyKey ?? globalThis.crypto.randomUUID()
+      if (typeof key !== "string" || !IDEMPOTENCY_KEY.test(key)) {
+        throw invalidRequest("idempotencyKey must be 1 to 255 visible ASCII characters")
+      }
       const monitorOptions: Payload = {}
       if (given.frequency !== undefined) monitorOptions.frequency = given.frequency
       if (given.includeDomains !== undefined) {
@@ -375,9 +386,12 @@ export function createMonitors(config: ResolvedConfig): MonitorsResource {
       body.agent = agent
       if (given.preset != null) body.preset = given.preset
       if (given.tags != null) body.tags = given.tags
-      // A retry after a lost reply would create a second, billed monitor. Only a 429
-      // is safe: the router created nothing then.
-      const data = await request(config, "POST", "/v1/monitors", body, given.signal, "rate_limit").catch(
+      const extra = {
+        headers: { "Idempotency-Key": key },
+        maxRetries: config.createMaxRetries,
+        budgetMs: CREATE_RETRY_BUDGET_MS,
+      }
+      const data = await request(config, "POST", "/v1/monitors", body, given.signal, "idempotent", extra).catch(
         (error: unknown) => {
           // The router may have made the monitor before the client gave up.
           if (error instanceof TimeoutError) {

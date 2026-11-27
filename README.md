@@ -392,6 +392,12 @@ try {
 | Other 4xx | `TelemError` with the status and the code from the server, not retried |
 | Attempt longer than `timeoutMs` | `TimeoutError`, not retried |
 
+`monitors.create` sends an `Idempotency-Key` header, a new one per call unless you
+pass `idempotencyKey`. It retries a 429, a 409 `idempotency_in_progress`, a network
+failure and a timeout for up to about 2 minutes, with the same key. For 24 hours, a
+retry with the same key returns the first monitor instead of creating a second one.
+A different API key makes a new monitor. A 5xx is not retried.
+
 See [Resources → Errors](https://docs.telem.ai/resources/errors/) for how the plugins show a failed call.
 
 ## Embedding and edge runtimes

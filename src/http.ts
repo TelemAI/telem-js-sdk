@@ -3,7 +3,9 @@
 //
 // Retry policy: 5xx, network failures and 429 are retried with exponential backoff
 // and `Retry-After` honored; every other 4xx is terminal, because re-sending
-// something the server already refused only spends the caller's time twice.
+// something the server already refused only spends the caller's time twice. A
+// request sent with an `Idempotency-Key` ("idempotent") retries a 429, a 409
+// `idempotency_in_progress`, a network failure and a timeout, and nothing else.
 
 import type { ResolvedConfig } from "./config.ts"
 import { TelemError, TimeoutError } from "./errors.ts"
@@ -18,6 +20,8 @@ const MAX_DELAY_MS = 30_000
 const MAX_TIMEOUT_MS = 2 ** 31 - 1
 /** The first backoff; every retry after it doubles, up to the ceiling. */
 const BASE_DELAY_MS = 500
+/** The ceiling on an idempotent request's backoff when the server sent no `Retry-After`. */
+const MAX_IDEMPOTENT_BACKOFF_MS = 10_000
 
 export function isObject(value: unknown): value is Payload {
   return typeof value === "object" && value !== null && !Array.isArray(value)
@@ -150,6 +154,14 @@ function isRetryable(status: number): boolean {
   return status >= 500 || status === 429
 }
 
+export type RetryMode = "all" | "rate_limit" | "idempotent"
+
+function shouldRetry(mode: RetryMode, status: number, body: unknown): boolean {
+  if (mode === "all") return isRetryable(status)
+  if (status === 429) return true
+  return mode === "idempotent" && status === 409 && codeFromBody(body) === "idempotency_in_progress"
+}
+
 function backoff(attempt: number): number {
   return Math.min(BASE_DELAY_MS * 2 ** attempt, MAX_DELAY_MS)
 }
@@ -170,6 +182,19 @@ function retryDelay(retryAfter: string | null, attempt: number): number {
   return backoff(attempt)
 }
 
+/** `ms` plus a random extra of up to 1 s or half of `ms`, whichever is more, so a crowd
+ *  of refused requests does not come back in lockstep. */
+function jittered(ms: number): number {
+  return ms + Math.random() * Math.max(1000, ms / 2)
+}
+
+/** An idempotent request's wait: `Retry-After` uncapped (the time budget bounds it),
+ *  else a backoff capped at 10 s, both jittered. */
+function idempotentDelay(retryAfter: string | null, attempt: number): number {
+  if (retryAfter !== null && /^\s*\d+\s*$/.test(retryAfter)) return jittered(Number(retryAfter) * 1000)
+  return Math.min(jittered(BASE_DELAY_MS * 2 ** attempt), MAX_IDEMPOTENT_BACKOFF_MS)
+}
+
 /**
  * Send one request, retrying per the rules above, and return the parsed body.
  *
@@ -177,7 +202,10 @@ function retryDelay(retryAfter: string | null, attempt: number): number {
  * @param method - The HTTP method.
  * @param path - Request path, joined onto the resolved base URL.
  * @param body - JSON request body; omitted entirely for a GET.
- * @param retry - `"all"` (default) or `"rate_limit"`, which retries a 429 only.
+ * @param retry - `"all"` (default), `"rate_limit"`, which retries a 429 only, or
+ *   `"idempotent"`, for a request sent with an `Idempotency-Key`.
+ * @param extra - Headers to add, a retry count in place of `config.maxRetries`, and
+ *   a time budget from the first attempt: a wait that would end past it is not taken.
  * @returns The parsed JSON body, or the raw text when it would not parse.
  * @throws TimeoutError when the request was still outstanding at the timeout.
  * @throws TelemError on any non-2xx response or transport failure.
@@ -191,10 +219,16 @@ export async function request(
   abort?: AbortSignal,
   /** `"rate_limit"` retries a 429 only: for a POST that is not safe to send twice,
    *  where a lost reply or a 5xx may mean the server already did the work. */
-  retry: "all" | "rate_limit" = "all",
+  retry: RetryMode = "all",
+  extra: { headers?: Record<string, string>; maxRetries?: number; budgetMs?: number } = {},
 ): Promise<unknown> {
   const url = `${config.baseUrl}/${path.replace(/^\/+/, "")}`
-  const headers: Record<string, string> = { "User-Agent": config.userAgent }
+  const maxRetries = extra.maxRetries ?? config.maxRetries
+  const started = Date.now()
+  const fits = (ms: number): boolean => Date.now() - started + ms <= (extra.budgetMs ?? Infinity)
+  const delay = (retryAfter: string | null, attempt: number): number =>
+    retry === "idempotent" ? idempotentDelay(retryAfter, attempt) : retryDelay(retryAfter, attempt)
+  const headers: Record<string, string> = { ...extra.headers, "User-Agent": config.userAgent }
   if (config.apiKey) headers.Authorization = `Bearer ${config.apiKey}`
   const init: RequestInit = { method, headers }
   if (body !== undefined) {
@@ -282,12 +316,18 @@ export async function request(
       // The caller aborted: surface their reason, exactly as fetch would, no retry.
       if (abort?.aborted) throw abort.reason ?? cause
       // A timeout is the caller's own patience running out, not a transient fault:
-      // retrying it would multiply the wall-clock wait they asked to cap.
+      // retrying it would multiply the wall-clock wait they asked to cap. An
+      // idempotent request is the exception: its retry gets the first answer back.
+      const wait = delay(null, attempt)
       if (signal?.aborted) {
+        if (retry === "idempotent" && attempt < maxRetries && fits(wait)) {
+          await pause(wait)
+          continue
+        }
         throw new TimeoutError(`request to ${url} timed out after ${config.timeoutMs}ms`, cause)
       }
-      if (retry === "rate_limit" || attempt >= config.maxRetries) throw connectionError(url, cause)
-      await pause(backoff(attempt))
+      if (retry === "rate_limit" || attempt >= maxRetries || !fits(wait)) throw connectionError(url, cause)
+      await pause(wait)
       continue
     } finally {
       signal?.removeEventListener("abort", onAbort)
@@ -295,10 +335,12 @@ export async function request(
 
     // The whole 2xx range is success; only the search version gate may reject one.
     if (received.status >= 200 && received.status < 300) return received.body
-    const retryable = retry === "rate_limit" ? received.status === 429 : isRetryable(received.status)
-    if (retryable && attempt < config.maxRetries) {
-      await pause(retryDelay(received.retryAfter, attempt))
-      continue
+    if (shouldRetry(retry, received.status, received.body) && attempt < maxRetries) {
+      const wait = delay(received.retryAfter, attempt)
+      if (fits(wait)) {
+        await pause(wait)
+        continue
+      }
     }
     throw statusError(received.status, received.body)
   }
