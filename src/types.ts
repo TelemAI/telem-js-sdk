@@ -81,6 +81,8 @@ export type SearchOptions = {
   includeFullContent?: boolean
   autoRouting?: string
   maxRoutingProviders?: number
+  /** `"images"`: an image search on brave only; each result adds `imageUrl`, `imageWidth`
+   *  and `imageHeight`. */
   topic?: string
   // Unpublished (2026-11-27): the search vertical, sent as `search.vertical` ("health",
   // "general"; the router 400s an unknown name). Wins over the client default. Not
@@ -191,6 +193,10 @@ export type SearchResult = {
   source: Json | null
   enrichments: Json | null
   fetchMeta: Json | null
+  /** Image searches (`topic: "images"`) only: the original image, its width and height. */
+  imageUrl: string | null
+  imageWidth: number | null
+  imageHeight: number | null
   provider: string
   raw: Json
 }

@@ -190,6 +190,9 @@ function searchResults(envelope: Payload, provider: string): SearchResult[] {
     source: row.source ?? null,
     enrichments: row.enrichments ?? null,
     fetchMeta: row.fetch_meta ?? null,
+    imageUrl: row.image_url ?? null,
+    imageWidth: row.image_width ?? null,
+    imageHeight: row.image_height ?? null,
     provider,
     raw: row,
   }))
