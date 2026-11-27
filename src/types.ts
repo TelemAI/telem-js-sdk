@@ -322,6 +322,10 @@ export type MonitorCreateCommonOptions = {
   metadata?: Json
   /** An `https` URL that receives the new results. */
   webhookUrl?: string
+  /** Labels of your own, to list the monitor by with `list({ tag })`: at most 10. Telem
+   *  strips and lower-cases each one, which must then be 1 to 32 of `a-z`, `0-9`, `-` and
+   *  `_`, starting with a letter or digit, and drops repeats. Anything else is a 422. */
+  tags?: string[]
   signal?: AbortSignal
 }
 
@@ -394,6 +398,9 @@ export type MonitorUpdateOptions = {
   /** A new end, this long from now, such as `"30d"` (at most `"30d"`). It renews a monitor
    *  before it ends; an ended monitor cannot be renewed. */
   ttl?: string
+  /** The monitor's new tags, in place of all its tags (the rule of `create`). `[]`
+   *  removes them all; leave it out to keep them. */
+  tags?: string[]
   signal?: AbortSignal
 }
 
@@ -428,6 +435,8 @@ export type Monitor = {
   /** Only in the answer to a create: why the monitor agent did not start, or not yet.
    *  `null` when it started, and in every other answer. */
   agentNote: string | null
+  /** Your labels for the monitor; empty when it has none. */
+  tags: string[]
   raw: Json
 }
 
@@ -549,6 +558,8 @@ export type MonitorListOptions = {
   limit?: number
   /** The `nextCursor` of the page before. */
   cursor?: string
+  /** Only your key's monitors that carry this one tag. Page on with `cursor` and the same `tag`. */
+  tag?: string
   signal?: AbortSignal
 }
 

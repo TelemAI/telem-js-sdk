@@ -63,6 +63,7 @@ type CreateInput = MonitorCreateCommonOptions & {
   agent?: boolean | null
   inputs?: MonitorInputs | null
   preset?: string | null
+  tags?: string[] | null
 }
 
 const POLL_DEPRECATED =
@@ -117,6 +118,7 @@ function monitorFrom(body: unknown): Monitor {
     webhookUrl: data.webhook_url ?? null,
     webhookSecret: data.webhook_secret ?? null,
     agentNote: typeof data.agent_note === "string" ? data.agent_note : null,
+    tags: asArray(data.tags).map(String),
     raw: data,
   }
   // `null` is a monitor without an agent. A router that sends no `agent_state` at all
@@ -285,6 +287,7 @@ function listQuery(options: MonitorListOptions): string {
   const params = new URLSearchParams()
   if (options.limit !== undefined) params.set("limit", String(options.limit))
   if (options.cursor !== undefined) params.set("cursor", options.cursor)
+  if (options.tag !== undefined) params.set("tag", options.tag)
   const query = params.toString()
   return query ? `?${query}` : ""
 }
@@ -363,6 +366,7 @@ export function createMonitors(config: ResolvedConfig): MonitorsResource {
       if (given.inputs != null) body.inputs = given.inputs
       body.agent = agent
       if (given.preset != null) body.preset = given.preset
+      if (given.tags != null) body.tags = given.tags
       // A retry after a lost reply would create a second, billed monitor. Only a 429
       // is safe: the router created nothing then.
       const data = await request(config, "POST", "/v1/monitors", body, given.signal, "rate_limit").catch(
@@ -400,6 +404,8 @@ export function createMonitors(config: ResolvedConfig): MonitorsResource {
       if (options.ttl !== undefined) body.ttl = options.ttl
       // "" removes the webhook, as `null` does and as in the Python SDK.
       if (options.webhookUrl !== undefined) body.webhook_url = options.webhookUrl || null
+      // `[]` clears the tags; a null would be refused, so it is not sent.
+      if (options.tags != null) body.tags = options.tags
       const route = path(monitorId)
       return monitorFrom(await request(config, "PATCH", route, body, options.signal))
     },
