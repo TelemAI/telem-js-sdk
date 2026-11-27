@@ -634,7 +634,9 @@ export function createMonitors(config: ResolvedConfig): MonitorsResource {
 
 /**
  * Check a monitor webhook: the `Telem-Signature` header against the raw body.
- * True when the signature is correct and not older than `toleranceSeconds`.
+ * True when any `v1` signature is correct and not older than `toleranceSeconds`.
+ * A header can carry several: during a secret's rotation, one for each secret.
+ * A header with no `t`, or more than one, is false.
  */
 export async function verifyWebhook(
   body: string | Uint8Array,
@@ -642,20 +644,31 @@ export async function verifyWebhook(
   secret: string,
   toleranceSeconds = 300,
 ): Promise<boolean> {
-  const parts = Object.fromEntries(
-    header.split(",").map((item) => [item.slice(0, item.indexOf("=")), item.slice(item.indexOf("=") + 1)]),
-  )
-  const t = parts.t ?? ""
-  const v1 = parts.v1 ?? ""
+  const parts = header
+    .split(",")
+    .map((item) => item.trim())
+    .filter((item) => item.includes("="))
+    .map((item) => [item.slice(0, item.indexOf("=")), item.slice(item.indexOf("=") + 1)])
+  const timestamps = parts.filter(([name]) => name === "t").map(([, value]) => value)
+  const signatures = parts.filter(([name, value]) => name === "v1" && /^[0-9a-f]{64}$/.test(value)).map(([, value]) => value)
+  if (timestamps.length !== 1 || signatures.length === 0) return false
+  const t = timestamps[0]
   if (!/^\d+$/.test(t) || Math.abs(Date.now() / 1000 - Number(t)) > toleranceSeconds) return false
-  if (!/^([0-9a-f]{2})+$/.test(v1)) return false
   const encoder = new TextEncoder()
   const raw = typeof body === "string" ? encoder.encode(body) : body
   const signed = new Uint8Array([...encoder.encode(`${t}.`), ...raw])
   const key = await crypto.subtle.importKey("raw", encoder.encode(secret), { name: "HMAC", hash: "SHA-256" }, false, [
-    "verify",
+    "sign",
   ])
-  const signature = new Uint8Array(v1.match(/../g)!.map((byte) => parseInt(byte, 16)))
-  // `verify` compares in constant time.
-  return crypto.subtle.verify("HMAC", key, signature, signed)
+  const mac = new Uint8Array(await crypto.subtle.sign("HMAC", key, signed))
+  const expected = Array.from(mac, (byte) => byte.toString(16).padStart(2, "0")).join("")
+  // One HMAC for the body, then a constant-time compare per signature.
+  return signatures.some((signature) => sameText(signature, expected))
+}
+
+function sameText(a: string, b: string): boolean {
+  if (a.length !== b.length) return false
+  let diff = 0
+  for (let i = 0; i < a.length; i++) diff |= a.charCodeAt(i) ^ b.charCodeAt(i)
+  return diff === 0
 }
