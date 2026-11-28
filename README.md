@@ -402,9 +402,10 @@ A different API key makes a new monitor. A 5xx is not retried.
 
 Search and fetch are not retried on a `5xx`: a gateway error can follow a search or fetch
 that was already billed, so a second send could bill it again. Send it again yourself only
-when the error carries an `interaction_id` (`error.details.detail.interaction_id` for a
-search, `error.details.error.interaction_id` for a fetch): Telem itself answered, and the
-failed runs were not billed.
+when Telem's own body says nothing was charged: a `503` whose `error.details.detail` is a
+string (for a fetch, `error.code` is `unavailable`) was refused with nothing charged, and an
+error with an `interaction_id` (`error.details.detail.interaction_id` for a search,
+`error.details.error.interaction_id` for a fetch) ran with every provider failed.
 
 See [Resources → Errors](https://docs.telem.ai/resources/errors/) for how the plugins show a failed call.
 
