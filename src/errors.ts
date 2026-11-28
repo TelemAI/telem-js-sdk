@@ -2,6 +2,8 @@
 // into one of these. No bare `Error` ever escapes the client. Callers branch on
 // `status`/`code`, never on subclasses.
 
+import type { MonitorBatchResult } from "./types.ts"
+
 /**
  * The CLOSED set of codes the client itself assigns, for failures that never
  * reached the server or that the server's own envelope does not describe. Any
@@ -22,6 +24,8 @@ export type TelemClientErrorCode =
   /** A 2xx body carried a value the client cannot use safely, such as a change-stream
    *  position (`seq`, `watermark`, `next_cursor`) that is not a whole number. */
   | "invalid_response"
+  /** `monitors.createMany` was aborted after it sent a call: `cause` is the reason. */
+  | "aborted"
 
 export type TelemErrorOptions = {
   /** HTTP status that produced this error; absent for transport failures. */
@@ -32,12 +36,21 @@ export type TelemErrorOptions = {
   /** Parsed response body (or raw text when it would not parse). */
   details?: unknown
   cause?: unknown
+  /** The response's `Retry-After`, in seconds, when it sent one as a number. */
+  retryAfter?: number
 }
 
 export class TelemError extends Error {
   status?: number
   code?: TelemClientErrorCode | (string & {})
   details?: unknown
+  /** The response's `Retry-After`, in seconds, when it sent one as a number. */
+  declare retryAfter?: number
+  /** From `monitors.createMany`: each monitor's last answer before it failed, in order.
+   *  Not enumerable, so serialising the error does not write a `webhookSecret`. */
+  declare results?: MonitorBatchResult[]
+  /** From `monitors.createMany`: every monitor's key, in order. Not enumerable. */
+  declare idempotencyKeys?: string[]
 
   constructor(message: string, options: TelemErrorOptions = {}) {
     super(message, options.cause === undefined ? undefined : { cause: options.cause })
@@ -45,6 +58,7 @@ export class TelemError extends Error {
     this.status = options.status
     this.code = options.code
     this.details = options.details
+    if (options.retryAfter !== undefined) this.retryAfter = options.retryAfter
   }
 }
 

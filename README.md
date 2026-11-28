@@ -232,6 +232,23 @@ returns the agent itself: its status, query, frequency and plan version.
 `monitor.agentState` shows it on the monitor; when the agent did not start, the
 create's `monitor.agentNote` says why. Read `iterateChanges` with `for await`.
 
+`createMany` takes an array of `create`'s options, each with its `query`, and returns
+one result per monitor, in your order: its `status`, its `monitor` or its `error`, and its
+`idempotencyKey`. It sends them in calls of 10, gives each its own key (or yours, as
+`idempotencyKey`), and sends again only the monitors answered with a 429 or a 409
+`idempotency_in_progress` (still being made). A call that fails whole, or an abort
+(`code: "aborted"`) once a call was sent, throws with `results` (each monitor's last answer
+so far) and `idempotencyKeys` (every key), and says the monitors may exist: send the
+monitors without a final 201 or 200 again with the same keys.
+
+```ts
+const results = await telem.monitors.createMany([
+  { query: "Nvidia files a new 8-K with the SEC", ttl: "30d" },
+  { query: "AMD files a new 8-K with the SEC", ttl: "30d", frequency: "1h" },
+])
+for (const result of results) console.log(result.index, result.status, result.monitor?.id ?? result.error)
+```
+
 `telem.monitors` also has `get` and `list`. `poll` is deprecated and warns once:
 read the agent's changes with `iterateChanges` instead.
 See [Monitors](https://docs.telem.ai/resources/monitors/) for the fields, the errors and
@@ -378,8 +395,9 @@ try {
     // error.code === "timeout": one attempt took longer than timeoutMs
   } else if (error instanceof TelemError) {
     error.status  // the HTTP status, or undefined when nothing was sent
-    error.code    // "invalid_request" | "unsupported_server_version" | "connection_error" | "invalid_response", or a server code
+    error.code    // "invalid_request" | "unsupported_server_version" | "connection_error" | "invalid_response" | "aborted", or a server code
     error.details // the parsed response body, or the raw text
+    error.retryAfter // the response's Retry-After in seconds, when it sent a number
   }
 }
 ```
@@ -391,14 +409,18 @@ try {
 | 5xx | Retried with backoff (`Retry-After` applies), then `TelemError` with the status. A search or fetch is not retried |
 | 429 | Retried with backoff (`Retry-After` applies), then `TelemError` with the status |
 | Other 4xx | `TelemError` with the status and the code from the server, not retried |
-| Attempt longer than `timeoutMs` | `TimeoutError`, not retried |
+| Attempt longer than `timeoutMs` | `TimeoutError`, not retried, except by `monitors.create` and `monitors.createMany`, which send it again with the same keys |
 | A change-stream position (`seq`, `next_cursor`, `watermark`) in a 2xx body that is not a whole number | `TelemError`, `code: "invalid_response"`, naming the field and the value; `details` is that value and `status` is unset |
+| A `monitors.createMany` answer without one result per monitor sent, a result with no `index` or `status`, or two results with the same `index` | `TelemError`, `code: "invalid_response"`, with `results` and `idempotencyKeys` on the error. The monitors may exist |
+| `monitors.createMany` aborted after it sent a call | `TelemError`, `code: "aborted"`, `cause` is the reason, with `results` and `idempotencyKeys` on the error |
 
 `monitors.create` sends an `Idempotency-Key` header, a new one per call unless you
 pass `idempotencyKey`. It retries a 429, a 409 `idempotency_in_progress`, a network
 failure and a timeout for up to about 2 minutes, with the same key. For 24 hours, a
 retry with the same key returns the first monitor instead of creating a second one.
-A different API key makes a new monitor. A 5xx is not retried.
+A different API key makes a new monitor. A 5xx is not retried. A `maxRetries` you pass
+caps these retries, and those of `monitors.createMany`. `monitors.createMany`
+also retries a 502 or 504, with the same keys: a long call can outlast the edge.
 
 Search and fetch are not retried on a `5xx`: a gateway error can follow a search or fetch
 that was already billed, so a second send could bill it again. Send it again yourself only

@@ -25,10 +25,25 @@
 // 409 `idempotency_in_progress`, a network failure and a timeout, for up to about 120 s
 // with jittered waits: for 24 hours Telem answers the key with the first monitor.
 // Under another API key it is a new create.
+//
+// `createMany` posts ten creates per `POST /v1/monitors:batch`, each with its key in the
+// body as `idempotency_key`, retries each call as a create (and after a 502 or 504, which
+// the edge answers a call that outlasted it), then re-sends only the
+// monitors answered 429 (or 409 `idempotency_in_progress`).
 
 import { CREATE_RETRY_BUDGET_MS, type ResolvedConfig } from "../config.ts"
 import { TelemError, TimeoutError } from "../errors.ts"
-import { asArray, asObject, invalidRequest, isObject, request, type Payload } from "../http.ts"
+import {
+  asArray,
+  asObject,
+  idempotentWait,
+  invalidRequest,
+  isObject,
+  optInt,
+  optObject,
+  request,
+  type Payload,
+} from "../http.ts"
 import type {
   AgentDocument,
   AgentState,
@@ -43,6 +58,7 @@ import type {
   ExpansionsPage,
   FeedbackResult,
   Monitor,
+  MonitorBatchResult,
   MonitorChangesAcrossOptions,
   MonitorChangesAcrossScope,
   MonitorChangesOptions,
@@ -416,6 +432,185 @@ function acrossQuery(scope: MonitorChangesAcrossScope, options: MonitorChangesAc
   return readQuery(params, options)
 }
 
+/** The wire body of one create and its `Idempotency-Key`, checked before anything is sent. */
+function createBody(config: ResolvedConfig, query: unknown, options: unknown): { body: Payload; key: string } {
+  const given = (options ?? {}) as CreateInput
+  // A missing or null agent is the default: on.
+  const agent = given.agent == null ? true : Boolean(given.agent)
+  if (agent && !given.ttl) throw invalidRequest(given.inputs == null ? NEEDS_TTL : NEEDS_TTL_INPUTS)
+  const key = given.idempotencyKey ?? globalThis.crypto.randomUUID()
+  if (typeof key !== "string" || !IDEMPOTENCY_KEY.test(key)) {
+    throw invalidRequest("idempotencyKey must be 1 to 255 visible ASCII characters")
+  }
+  const monitorOptions: Payload = {}
+  if (given.frequency !== undefined) monitorOptions.frequency = given.frequency
+  if (given.includeDomains !== undefined) {
+    monitorOptions.include_domains = given.includeDomains
+  }
+  if (given.search !== undefined) monitorOptions.search = searchBlock({}, given.search)
+  const body: Payload = { query, options: monitorOptions }
+  if (given.metadata !== undefined) body.metadata = given.metadata
+  if (given.webhookUrl !== undefined) body.webhook_url = given.webhookUrl
+  if (given.ttl !== undefined) body.ttl = given.ttl
+  // Sent as given: the router checks the companies and the schema.
+  if (given.inputs != null) {
+    body.inputs = given.inputs
+    // Unpublished: the client's default vertical, on inputs that set none. A copy,
+    // so the caller's object is never changed. Unset adds nothing.
+    const vertical = config.defaults.vertical
+    if (vertical !== undefined && !("vertical" in given.inputs)) {
+      body.inputs = { ...given.inputs, vertical }
+    }
+  }
+  body.agent = agent
+  if (given.preset != null) body.preset = given.preset
+  if (given.tags != null) body.tags = given.tags
+  return { body, key }
+}
+
+const MAY_EXIST = "The monitor may exist: list monitors before you create it again."
+const MAY_EXIST_MANY = "The monitors may exist: list monitors before you create them again."
+
+/** The router may have made the monitors before the client gave up. */
+function mayExist(note: string): (error: unknown) => never {
+  return (error) => {
+    if (error instanceof TimeoutError) throw new TimeoutError(`${error.message}. ${note}`, error.cause)
+    throw error
+  }
+}
+
+/** The most monitors one `POST /v1/monitors:batch` takes. */
+const BATCH_SIZE = 10
+/** What the edge answers a call that outlasted it: the router may still have made them. */
+const GATEWAY_TIMEOUTS = [502, 504] as const
+
+/** The options a monitor of `createMany` takes: those of `create` and its `query`. */
+const ITEM_FIELDS = new Set([
+  "query",
+  "frequency",
+  "search",
+  "includeDomains",
+  "metadata",
+  "webhookUrl",
+  "tags",
+  "idempotencyKey",
+  "ttl",
+  "agent",
+  "inputs",
+  "preset",
+])
+
+function invalidBatch(message: string): TelemError {
+  return new TelemError(message, { code: "invalid_response" })
+}
+
+/** The results of one batch call by their place in the whole list, and the first malformed
+ *  entry's error, if any. `sent` holds the place of each monitor sent; the answer's `index`
+ *  is a position in it. */
+function batchAnswer(
+  data: unknown,
+  sent: number[],
+  keys: string[],
+): { answer: Map<number, MonitorBatchResult>; problem: TelemError | null } {
+  const answer = new Map<number, MonitorBatchResult>()
+  const results = isObject(data) ? data.results : undefined
+  const count = `the batch answer does not have one result for each of the ${sent.length} monitors sent`
+  if (!Array.isArray(results)) return { answer, problem: invalidBatch(count) }
+  // A wrong count still keeps each entry it can place.
+  let problem: TelemError | null = results.length !== sent.length ? invalidBatch(count) : null
+  for (const entry of results) {
+    try {
+      const [position, result] = batchEntry(entry, sent, keys, answer)
+      answer.set(position, result)
+    } catch (error) {
+      if (!(error instanceof TelemError)) throw error
+      problem ??= error
+    }
+  }
+  return { answer, problem }
+}
+
+function batchEntry(
+  entry: unknown,
+  sent: number[],
+  keys: string[],
+  answer: Map<number, MonitorBatchResult>,
+): [number, MonitorBatchResult] {
+  const index = isObject(entry) ? entry.index : undefined
+  if (!isObject(entry) || !Number.isInteger(index) || index < 0 || index >= sent.length) {
+    throw invalidBatch("a batch result has no valid index")
+  }
+  if (!Number.isInteger(entry.status)) throw invalidBatch(`batch result ${index} has no status`)
+  const position = sent[index]
+  if (answer.has(position)) throw invalidBatch(`two batch results have index ${index}`)
+  return [
+    position,
+    {
+      index: position,
+      status: entry.status,
+      monitor: isObject(entry.monitor) ? monitorFrom(entry.monitor) : null,
+      replayed: entry.replayed === true,
+      error: optObject(entry.error),
+      retryAfter: optInt(entry.retry_after),
+      idempotencyKey: keys[position],
+      raw: entry,
+    },
+  ]
+}
+
+/** Whether this monitor has no final answer: none yet, a 429, or a 409
+ *  `idempotency_in_progress` (its first create is still running). */
+function comesBack(result: MonitorBatchResult | undefined): boolean {
+  if (result === undefined || result.status === 429) return true
+  return result.status === 409 && isObject(result.error) && result.error.code === "idempotency_in_progress"
+}
+
+/** `error` as `createMany` throws it once a call was sent: monitors may exist, so it says
+ *  so, with the results so far and every key. */
+function failed(error: TelemError, results: (MonitorBatchResult | undefined)[], keys: string[]): TelemError {
+  const message = withNote(error.message)
+  const { status, code, details, retryAfter } = error
+  const thrown =
+    error instanceof TimeoutError
+      ? new TimeoutError(message, error.cause)
+      : new TelemError(message, { status, code, details, retryAfter, cause: error })
+  return attach(thrown, results, keys)
+}
+
+/** The caller's abort after a call was sent, with the results so far and every key. */
+function aborted(reason: unknown, results: (MonitorBatchResult | undefined)[], keys: string[]): TelemError {
+  const thrown = new TelemError(withNote("monitors.createMany() was aborted"), { code: "aborted", cause: reason })
+  return attach(thrown, results, keys)
+}
+
+function withNote(message: string): string {
+  return `${message}${message.endsWith(".") ? "" : "."} ${MAY_EXIST_MANY}`
+}
+
+/** Not enumerable, so serialising the error does not write a `webhookSecret`. */
+function attach(thrown: TelemError, results: (MonitorBatchResult | undefined)[], keys: string[]): TelemError {
+  const answered = results.filter((result): result is MonitorBatchResult => result !== undefined)
+  Object.defineProperty(thrown, "results", { value: answered, writable: true, configurable: true })
+  Object.defineProperty(thrown, "idempotencyKeys", { value: [...keys], writable: true, configurable: true })
+  return thrown
+}
+
+/** A wait that the caller's abort cuts short. */
+async function pause(config: ResolvedConfig, ms: number, signal?: AbortSignal): Promise<void> {
+  if (!signal) return config.sleep(ms)
+  if (signal.aborted) throw signal.reason ?? new Error("aborted")
+  let onAbort = (): void => {}
+  const aborted = new Promise<never>((_, reject) => {
+    onAbort = () => reject(signal.reason ?? new Error("aborted"))
+    signal.addEventListener("abort", onAbort, { once: true })
+  })
+  try {
+    await Promise.race([config.sleep(ms), aborted])
+  } finally {
+    signal.removeEventListener("abort", onAbort)
+  }
+}
+
 /** Bind the monitors resource to one client's configuration. */
 export function createMonitors(config: ResolvedConfig): MonitorsResource {
   // Encoded, and all-dots ids refused, for the same reason as the sessions path.
@@ -460,55 +655,91 @@ export function createMonitors(config: ResolvedConfig): MonitorsResource {
   return {
     /** Create a monitor. Telem runs `query` on the schedule, and its agent keeps what matches. */
     async create(query, options) {
-      const given: CreateInput = options ?? {}
-      // A missing or null agent is the default: on.
-      const agent = given.agent == null ? true : Boolean(given.agent)
-      if (agent && !given.ttl) throw invalidRequest(given.inputs == null ? NEEDS_TTL : NEEDS_TTL_INPUTS)
-      const key = given.idempotencyKey ?? globalThis.crypto.randomUUID()
-      if (typeof key !== "string" || !IDEMPOTENCY_KEY.test(key)) {
-        throw invalidRequest("idempotencyKey must be 1 to 255 visible ASCII characters")
-      }
-      const monitorOptions: Payload = {}
-      if (given.frequency !== undefined) monitorOptions.frequency = given.frequency
-      if (given.includeDomains !== undefined) {
-        monitorOptions.include_domains = given.includeDomains
-      }
-      if (given.search !== undefined) monitorOptions.search = searchBlock({}, given.search)
-      const body: Payload = { query, options: monitorOptions }
-      if (given.metadata !== undefined) body.metadata = given.metadata
-      if (given.webhookUrl !== undefined) body.webhook_url = given.webhookUrl
-      if (given.ttl !== undefined) body.ttl = given.ttl
-      // Sent as given: the router checks the companies and the schema.
-      if (given.inputs != null) {
-        body.inputs = given.inputs
-        // Unpublished: the client's default vertical, on inputs that set none. A copy,
-        // so the caller's object is never changed. Unset adds nothing.
-        const vertical = config.defaults.vertical
-        if (vertical !== undefined && !("vertical" in given.inputs)) {
-          body.inputs = { ...given.inputs, vertical }
-        }
-      }
-      body.agent = agent
-      if (given.preset != null) body.preset = given.preset
-      if (given.tags != null) body.tags = given.tags
+      const { body, key } = createBody(config, query, options)
       const extra = {
         headers: { "Idempotency-Key": key },
         maxRetries: config.createMaxRetries,
         budgetMs: CREATE_RETRY_BUDGET_MS,
       }
-      const data = await request(config, "POST", "/v1/monitors", body, given.signal, "idempotent", extra).catch(
-        (error: unknown) => {
-          // The router may have made the monitor before the client gave up.
-          if (error instanceof TimeoutError) {
-            throw new TimeoutError(
-              `${error.message}. The monitor may exist: list monitors before you create it again.`,
-              error.cause,
-            )
-          }
-          throw error
-        },
+      const data = await request(config, "POST", "/v1/monitors", body, options?.signal, "idempotent", extra).catch(
+        mayExist(MAY_EXIST),
       )
       return monitorFrom(data)
+    },
+
+    /** Create many monitors, ten per call, one call after another. */
+    async createMany(items, options = {}) {
+      if (!Array.isArray(items)) throw invalidRequest("createMany takes an array of monitors")
+      const given = new Map<string, number>()
+      const bodies = items.map((item: unknown, index) => {
+        try {
+          if (!isObject(item)) throw invalidRequest("a monitor must be an object of create's options")
+          const unknown = Object.keys(item).find((key) => !ITEM_FIELDS.has(key))
+          if (unknown !== undefined) throw invalidRequest(`unknown option ${JSON.stringify(unknown)}`)
+          if (item.query == null) throw invalidRequest("query is required")
+          const { body, key } = createBody(config, item.query, item)
+          try {
+            JSON.stringify(body)
+          } catch (cause) {
+            throw invalidRequest(`not JSON: ${(cause as Error)?.message ?? String(cause)}`)
+          }
+          return { ...body, idempotency_key: key }
+        } catch (error) {
+          if (error instanceof TelemError) throw invalidRequest(`monitor ${index}: ${error.message}`)
+          throw error
+        }
+      })
+      items.forEach((item, index) => {
+        if (item.idempotencyKey == null) return
+        const first = given.get(item.idempotencyKey) ?? index
+        given.set(item.idempotencyKey, first)
+        if (first !== index) throw invalidRequest(`monitors ${first} and ${index} have the same idempotencyKey`)
+      })
+      const keys = bodies.map((body) => body.idempotency_key as string)
+      const results: (MonitorBatchResult | undefined)[] = Array(bodies.length).fill(undefined)
+      let sent = false
+      // After a call was sent, every failure carries the answers so far and every key.
+      const fail = (error: unknown): unknown => {
+        if (!sent) return error
+        if (!(error instanceof TelemError)) {
+          if (!options.signal?.aborted) return error
+          return aborted(error, results, keys)
+        }
+        return failed(error, results, keys)
+      }
+      for (let offset = 0; offset < bodies.length; offset += BATCH_SIZE) {
+        let pending = keys.slice(offset, offset + BATCH_SIZE).map((_, i) => offset + i)
+        const started = Date.now()
+        for (let attempt = 0; ; attempt++) {
+          const extra = {
+            maxRetries: config.createMaxRetries,
+            budgetMs: CREATE_RETRY_BUDGET_MS - (Date.now() - started),
+            lostReplyStatuses: GATEWAY_TIMEOUTS,
+          }
+          const body = { monitors: pending.map((i) => bodies[i]) }
+          let data: unknown
+          try {
+            sent ||= !options.signal?.aborted
+            data = await request(config, "POST", "/v1/monitors:batch", body, options.signal, "idempotent", extra)
+          } catch (error) {
+            throw fail(error)
+          }
+          const { answer, problem } = batchAnswer(data, pending, keys)
+          for (const [position, result] of answer) results[position] = result
+          if (problem) throw fail(problem)
+          pending = pending.filter((i) => comesBack(results[i]))
+          if (!pending.length || attempt >= config.createMaxRetries) break
+          const known = pending.map((i) => results[i]!.retryAfter).filter((n): n is number => n !== null && n >= 0)
+          const wait = idempotentWait(known.length ? Math.max(...known) : null, attempt)
+          if (Date.now() - started + wait > CREATE_RETRY_BUDGET_MS) break
+          try {
+            await pause(config, wait, options.signal)
+          } catch (error) {
+            throw fail(error)
+          }
+        }
+      }
+      return results as MonitorBatchResult[]
     },
 
     /** List your monitors, newest first. `listPage` also gives the next cursor. */

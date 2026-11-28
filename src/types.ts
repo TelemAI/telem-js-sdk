@@ -410,6 +410,31 @@ export type MonitorCreateOptions = MonitorCreateCommonOptions &
 /** The `preset` of `monitors.create`. */
 export type MonitorPreset = "article" | "person" | "company" | "listing"
 
+/** One monitor of `monitors.createMany`: its `query` and the options of `create`.
+ *  `idempotencyKey` is this monitor's own key; the call takes the `signal`. */
+export type MonitorCreateManyItem = { query: string } & WithoutSignal<MonitorCreateOptions>
+
+/** `Omit` for each member of a union, so the `agent`/`ttl` pairing holds. */
+type WithoutSignal<T> = T extends unknown ? Omit<T, "signal"> : never
+
+/** One monitor's answer in `monitors.createMany`. */
+export type MonitorBatchResult = {
+  /** The monitor's position in the array you passed. */
+  index: number
+  /** `201`: made. `200` with `replayed`: made before, under the same key. Any other
+   *  status is this monitor's own error. */
+  status: number
+  monitor: Monitor | null
+  replayed: boolean
+  /** `{ code, message }`, and `param` when a field is at fault. */
+  error: Json | null
+  /** With a `429`: the seconds to wait before you send this monitor again. */
+  retryAfter: number | null
+  /** The key this monitor was sent with: send it again with the same key. */
+  idempotencyKey: string
+  raw: Json
+}
+
 /** Options for `monitors.update`. Send at least one field. */
 export type MonitorUpdateOptions = {
   /** `"paused"` or `"active"`. */
@@ -858,6 +883,16 @@ export type MonitorsResource = {
    *  `ttl` is required: a create without it throws a `TelemError` (`invalid_request`)
    *  before anything is sent. */
   create(query: string, options: MonitorCreateOptions): Promise<Monitor>
+  /** Create many monitors, ten per call, one call after another. One result per monitor,
+   *  in the order given; a monitor that fails does not stop the others. Each call retries
+   *  as `create` does, and after a 502 or 504 too, then only the monitors answered with a 429 (or a 409
+   *  `idempotency_in_progress`) are sent again, with their keys, for up to about 120 s per
+   *  call. A bad monitor, an unknown option, a monitor that is not JSON or a key given
+   *  twice throws a `TelemError` (`invalid_request`) naming the index, before anything is
+   *  sent. Once a call was sent, any failure (a call refused whole, an abort as `aborted`)
+   *  throws with `results` (each monitor's last answer so far) and `idempotencyKeys` (every
+   *  monitor's key) on the error, and its message says the monitors may exist. */
+  createMany(items: MonitorCreateManyItem[], options?: { signal?: AbortSignal }): Promise<MonitorBatchResult[]>
   list(options?: MonitorListOptions): Promise<Monitor[]>
   listPage(options?: MonitorListOptions): Promise<MonitorPage>
   get(monitorId: string, options?: { signal?: AbortSignal }): Promise<Monitor>

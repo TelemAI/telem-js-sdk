@@ -136,12 +136,13 @@ const BLOCKED_MESSAGE =
   "The request was blocked by a firewall before it reached Telem; " +
   "the text may have characters that are not allowed."
 
-function statusError(status: number, body: unknown): TelemError {
+function statusError(status: number, body: unknown, retryAfter: string | null = null): TelemError {
   const fallback = status === 403 && !isObject(body) ? BLOCKED_MESSAGE : defaultMessage(status)
   return new TelemError(detailFromBody(body) ?? fallback, {
     status,
     code: codeFromBody(body),
     details: body,
+    retryAfter: retryAfter !== null && /^\s*\d+\s*$/.test(retryAfter) ? Number(retryAfter) : undefined,
   })
 }
 
@@ -217,7 +218,12 @@ function jittered(ms: number): number {
 /** An idempotent request's wait: `Retry-After` uncapped (the time budget bounds it),
  *  else a backoff capped at 10 s, both jittered. */
 function idempotentDelay(retryAfter: string | null, attempt: number): number {
-  if (retryAfter !== null && /^\s*\d+\s*$/.test(retryAfter)) return jittered(Number(retryAfter) * 1000)
+  return idempotentWait(retryAfter !== null && /^\s*\d+\s*$/.test(retryAfter) ? Number(retryAfter) : null, attempt)
+}
+
+/** The same wait, from a number of seconds or none. */
+export function idempotentWait(seconds: number | null, attempt: number): number {
+  if (seconds !== null) return jittered(seconds * 1000)
   return Math.min(jittered(BASE_DELAY_MS * 2 ** attempt), MAX_IDEMPOTENT_BACKOFF_MS)
 }
 
@@ -231,8 +237,9 @@ function idempotentDelay(retryAfter: string | null, attempt: number): number {
  * @param retry - `"all"` (default), `"rate_limit"`, which retries a 429 only,
  *   `"idempotent"`, for a request sent with an `Idempotency-Key`, or `"metered"`, for
  *   a billed call: a 429, or a network failure that sent nothing.
- * @param extra - Headers to add, a retry count in place of `config.maxRetries`, and
- *   a time budget from the first attempt: a wait that would end past it is not taken.
+ * @param extra - Headers to add, a retry count in place of `config.maxRetries`, a time
+ *   budget from the first attempt (a wait that would end past it is not taken), and
+ *   statuses an idempotent request retries as a lost reply.
  * @returns The parsed JSON body, or the raw text when it would not parse.
  * @throws TimeoutError when the request was still outstanding at the timeout.
  * @throws TelemError on any non-2xx response or transport failure.
@@ -247,7 +254,13 @@ export async function request(
   /** `"rate_limit"` retries a 429 only: for a POST that is not safe to send twice,
    *  where a lost reply or a 5xx may mean the server already did the work. */
   retry: RetryMode = "all",
-  extra: { headers?: Record<string, string>; maxRetries?: number; budgetMs?: number } = {},
+  extra: {
+    headers?: Record<string, string>
+    maxRetries?: number
+    budgetMs?: number
+    /** Statuses retried as a lost reply, for an idempotent request only. */
+    lostReplyStatuses?: readonly number[]
+  } = {},
 ): Promise<unknown> {
   const url = `${config.baseUrl}/${path.replace(/^\/+/, "")}`
   const maxRetries = extra.maxRetries ?? config.maxRetries
@@ -363,14 +376,15 @@ export async function request(
 
     // The whole 2xx range is success; only the search version gate may reject one.
     if (received.status >= 200 && received.status < 300) return received.body
-    if (shouldRetry(retry, received.status, received.body) && attempt < maxRetries) {
+    const lostReply = retry === "idempotent" && extra.lostReplyStatuses?.includes(received.status) === true
+    if ((lostReply || shouldRetry(retry, received.status, received.body)) && attempt < maxRetries) {
       const wait = delay(received.retryAfter, attempt)
       if (fits(wait)) {
         await pause(wait)
         continue
       }
     }
-    throw statusError(received.status, received.body)
+    throw statusError(received.status, received.body, received.retryAfter)
   }
   }
 }
