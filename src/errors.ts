@@ -19,6 +19,9 @@ export type TelemClientErrorCode =
   | "connection_error"
   /** The request was still outstanding when the timeout fired. */
   | "timeout"
+  /** A 2xx body carried a value the client cannot use safely, such as a change-stream
+   *  position (`seq`, `watermark`, `next_cursor`) that is not a whole number. */
+  | "invalid_response"
 
 export type TelemErrorOptions = {
   /** HTTP status that produced this error; absent for transport failures. */

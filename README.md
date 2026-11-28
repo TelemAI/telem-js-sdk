@@ -378,7 +378,7 @@ try {
     // error.code === "timeout": one attempt took longer than timeoutMs
   } else if (error instanceof TelemError) {
     error.status  // the HTTP status, or undefined when nothing was sent
-    error.code    // "invalid_request" | "unsupported_server_version" | "connection_error", or a server code
+    error.code    // "invalid_request" | "unsupported_server_version" | "connection_error" | "invalid_response", or a server code
     error.details // the parsed response body, or the raw text
   }
 }
@@ -391,6 +391,7 @@ try {
 | 5xx or 429 | Retried with backoff (`Retry-After` applies), then `TelemError` with the status |
 | Other 4xx | `TelemError` with the status and the code from the server, not retried |
 | Attempt longer than `timeoutMs` | `TimeoutError`, not retried |
+| A change-stream position (`seq`, `next_cursor`, `watermark`) in a 2xx body that is not a whole number | `TelemError`, `code: "invalid_response"`, naming the field and the value; `details` is that value and `status` is unset |
 
 `monitors.create` sends an `Idempotency-Key` header, a new one per call unless you
 pass `idempotencyKey`. It retries a 429, a 409 `idempotency_in_progress`, a network

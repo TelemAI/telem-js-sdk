@@ -27,7 +27,7 @@
 // Under another API key it is a new create.
 
 import { CREATE_RETRY_BUDGET_MS, type ResolvedConfig } from "../config.ts"
-import { TimeoutError } from "../errors.ts"
+import { TelemError, TimeoutError } from "../errors.ts"
 import { asArray, asObject, invalidRequest, isObject, request, type Payload } from "../http.ts"
 import type {
   AgentDocument,
@@ -107,7 +107,7 @@ function agentStateFrom(data: Payload): AgentState {
     needsAttention: data.needs_attention === true,
     planVersion: typeof data.plan_version === "number" ? data.plan_version : null,
     nextRunAt: typeof data.next_run_at === "string" ? data.next_run_at : null,
-    watermark: Number(data.watermark ?? 0),
+    watermark: finite(data.watermark),
     // No compile job yet is null, not an object of empty strings.
     compile: isObject(data.compile)
       ? {
@@ -157,10 +157,21 @@ function agentDocumentFrom(body: unknown): AgentDocument {
   return document
 }
 
+/** A stream position off the wire: a whole number from 0, or a string of digits. Anything
+ *  else, missing included, throws `invalid_response`: read as 0 it would re-read or end
+ *  the stream. */
+function position(value: unknown, field: string): number {
+  const n = typeof value === "number" ? value : typeof value === "string" && /^\d+$/.test(value) ? Number(value) : NaN
+  if (Number.isSafeInteger(n) && n >= 0) return n
+  const sent = value === undefined ? "missing" : (JSON.stringify(value) ?? String(value))
+  const shown = sent.length > 40 ? `${sent.slice(0, 40)}…` : sent
+  throw new TelemError(`${field} is not a stream position: ${shown}`, { code: "invalid_response", details: value })
+}
+
 function changeRecordFrom(entry: Payload): ChangeRecord {
   const subject = asObject(entry.subject)
   return {
-    seq: Number(entry.seq ?? 0),
+    seq: position(entry.seq, "change seq"),
     type: String(entry.type ?? ""),
     kind: String(entry.kind ?? ""),
     monitorId: String(entry.monitor_id ?? ""),
@@ -181,8 +192,8 @@ function changesPageFrom(body: unknown): ChangesPage {
   const data = asObject(body)
   return {
     changes: asArray(data.changes).filter(isObject).map(changeRecordFrom),
-    nextCursor: Number(data.next_cursor ?? 0),
-    watermark: Number(data.watermark ?? 0),
+    nextCursor: position(data.next_cursor, "changes page next_cursor"),
+    watermark: position(data.watermark, "changes page watermark"),
   }
 }
 
