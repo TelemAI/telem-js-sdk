@@ -276,7 +276,7 @@ export async function search(
   options: SearchOptions,
 ): Promise<SearchResponse> {
   const body = searchBody(config, query, options)
-  const data = await request(config, "POST", "/v1/interactions", body, options.signal)
+  const data = await request(config, "POST", "/v1/interactions", body, options.signal, "metered")
   assertV2(data)
   return buildSearchResponse(data)
 }

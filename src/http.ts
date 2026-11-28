@@ -5,7 +5,9 @@
 // and `Retry-After` honored; every other 4xx is terminal, because re-sending
 // something the server already refused only spends the caller's time twice. A
 // request sent with an `Idempotency-Key` ("idempotent") retries a 429, a 409
-// `idempotency_in_progress`, a network failure and a timeout, and nothing else.
+// `idempotency_in_progress`, a network failure and a timeout, and nothing else. A
+// metered call ("metered": search, fetch) retries a 429 and a network failure that
+// never left this machine, never a 5xx: a gateway 5xx can follow a billed request.
 
 import type { ResolvedConfig } from "./config.ts"
 import { TelemError, TimeoutError } from "./errors.ts"
@@ -163,7 +165,22 @@ function isRetryable(status: number): boolean {
   return status >= 500 || status === 429
 }
 
-export type RetryMode = "all" | "rate_limit" | "idempotent"
+export type RetryMode = "all" | "rate_limit" | "idempotent" | "metered"
+
+/** Socket errors meaning the request never left this machine. */
+const NEVER_SENT = new Set(["ECONNREFUSED", "ENOTFOUND", "EAI_AGAIN"])
+
+/** Whether a `fetch` rejection provably sent nothing: its socket error (on `.cause`,
+ *  or every one of an `AggregateError`'s) is one of `NEVER_SENT`. */
+function neverSent(failure: unknown): boolean {
+  const codes = (value: unknown): unknown[] => {
+    if (typeof value !== "object" || value === null) return []
+    const error = value as { code?: unknown; errors?: unknown }
+    return Array.isArray(error.errors) ? error.errors.flatMap(codes) : [error.code]
+  }
+  const found = codes((failure as { cause?: unknown } | undefined)?.cause)
+  return found.length > 0 && found.every((code) => typeof code === "string" && NEVER_SENT.has(code))
+}
 
 function shouldRetry(mode: RetryMode, status: number, body: unknown): boolean {
   if (mode === "all") return isRetryable(status)
@@ -211,8 +228,9 @@ function idempotentDelay(retryAfter: string | null, attempt: number): number {
  * @param method - The HTTP method.
  * @param path - Request path, joined onto the resolved base URL.
  * @param body - JSON request body; omitted entirely for a GET.
- * @param retry - `"all"` (default), `"rate_limit"`, which retries a 429 only, or
- *   `"idempotent"`, for a request sent with an `Idempotency-Key`.
+ * @param retry - `"all"` (default), `"rate_limit"`, which retries a 429 only,
+ *   `"idempotent"`, for a request sent with an `Idempotency-Key`, or `"metered"`, for
+ *   a billed call: a 429, or a network failure that sent nothing.
  * @param extra - Headers to add, a retry count in place of `config.maxRetries`, and
  *   a time budget from the first attempt: a wait that would end past it is not taken.
  * @returns The parsed JSON body, or the raw text when it would not parse.
@@ -335,7 +353,8 @@ export async function request(
         }
         throw new TimeoutError(`request to ${url} timed out after ${config.timeoutMs}ms`, cause)
       }
-      if (retry === "rate_limit" || attempt >= maxRetries || !fits(wait)) throw connectionError(url, cause)
+      if (retry === "rate_limit" || (retry === "metered" && !neverSent(cause))) throw connectionError(url, cause)
+      if (attempt >= maxRetries || !fits(wait)) throw connectionError(url, cause)
       await pause(wait)
       continue
     } finally {

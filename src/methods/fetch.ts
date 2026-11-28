@@ -121,5 +121,5 @@ export async function fetchUrls(
   options: FetchOptions,
 ): Promise<FetchResponse> {
   const body = fetchBody(url, options, config.fetchDefaults)
-  return buildFetchResponse(await request(config, "POST", "/v1/fetch", body, options.signal))
+  return buildFetchResponse(await request(config, "POST", "/v1/fetch", body, options.signal, "metered"))
 }

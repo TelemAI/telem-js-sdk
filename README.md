@@ -48,7 +48,7 @@ const telem = new Telem({
   apiKey: "tlm_...",
   baseUrl: "https://router.telem.ai",
   timeoutMs: 60_000,  // per attempt
-  maxRetries: 2,      // on 5xx, network errors and 429
+  maxRetries: 2,      // on 429, network errors and 5xx (not 5xx on search or fetch)
   tier: "extended",   // client-wide search defaults go here
 })
 ```
@@ -387,8 +387,9 @@ try {
 | Situation | Result |
 |---|---|
 | Bad input (empty query, empty URL list, a monitor with an agent and no `ttl`) | `TelemError`, `code: "invalid_request"`, nothing sent |
-| Network failure | `TelemError`, `code: "connection_error"`, after the retries |
-| 5xx or 429 | Retried with backoff (`Retry-After` applies), then `TelemError` with the status |
+| Network failure | `TelemError`, `code: "connection_error"`, after the retries. A search or fetch is retried only when the request never left (in Node: connection refused, host not found) |
+| 5xx | Retried with backoff (`Retry-After` applies), then `TelemError` with the status. A search or fetch is not retried |
+| 429 | Retried with backoff (`Retry-After` applies), then `TelemError` with the status |
 | Other 4xx | `TelemError` with the status and the code from the server, not retried |
 | Attempt longer than `timeoutMs` | `TimeoutError`, not retried |
 | A change-stream position (`seq`, `next_cursor`, `watermark`) in a 2xx body that is not a whole number | `TelemError`, `code: "invalid_response"`, naming the field and the value; `details` is that value and `status` is unset |
@@ -398,6 +399,12 @@ pass `idempotencyKey`. It retries a 429, a 409 `idempotency_in_progress`, a netw
 failure and a timeout for up to about 2 minutes, with the same key. For 24 hours, a
 retry with the same key returns the first monitor instead of creating a second one.
 A different API key makes a new monitor. A 5xx is not retried.
+
+Search and fetch are not retried on a `5xx`: a gateway error can follow a search or fetch
+that was already billed, so a second send could bill it again. Send it again yourself only
+when the error carries an `interaction_id` (`error.details.detail.interaction_id` for a
+search, `error.details.error.interaction_id` for a fetch): Telem itself answered, and the
+failed runs were not billed.
 
 See [Resources → Errors](https://docs.telem.ai/resources/errors/) for how the plugins show a failed call.
 
