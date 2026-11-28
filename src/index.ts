@@ -10,6 +10,7 @@ import { createMonitors } from "./methods/monitors.ts"
 import { providers as listProviders } from "./methods/providers.ts"
 import { search as runSearch } from "./methods/search.ts"
 import { createSessions } from "./methods/sessions.ts"
+import { createWebhookEndpoints } from "./methods/webhook-endpoints.ts"
 import type {
   FetchOptions,
   FetchResponse,
@@ -19,6 +20,7 @@ import type {
   SearchResponse,
   SessionsResource,
   TelemOptions,
+  WebhookEndpointsResource,
 } from "./types.ts"
 
 export { TelemError, TimeoutError } from "./errors.ts"
@@ -95,6 +97,12 @@ export type {
   SessionsResource,
   SessionSummary,
   TelemOptions,
+  WebhookEndpoint,
+  WebhookEndpointCreated,
+  WebhookEndpointCreateOptions,
+  WebhookEndpointRotated,
+  WebhookEndpointsResource,
+  WebhookEndpointUpdateOptions,
 } from "./types.ts"
 
 /**
@@ -124,6 +132,8 @@ export class Telem {
    *  `inputs` collects (`onboarding`, `applyOnboarding`, `expansions`, `confirmExpansion`,
    *  `revertExpansion`, `dataMap`, `companies`), and the deprecated `poll`. */
   readonly monitors: MonitorsResource
+  /** The project's webhook endpoints: `create`, `list`, `get`, `update`, `delete` and `rotate`. */
+  readonly webhookEndpoints: WebhookEndpointsResource
 
   readonly #config: ResolvedConfig
 
@@ -141,6 +151,7 @@ export class Telem {
     this.maxRetries = config.maxRetries
     this.sessions = createSessions(config)
     this.monitors = createMonitors(config)
+    this.webhookEndpoints = createWebhookEndpoints(config)
   }
 
   /**

@@ -949,3 +949,64 @@ export type MonitorsResource = {
    *  with `agent: false` answers 404. */
   companies(monitorId: string, options?: MonitorCompaniesOptions): Promise<CompanyList>
 }
+
+/** One of the project's webhook endpoints. Its secret is shown only by `create` and `rotate`. */
+export type WebhookEndpoint = {
+  id: string
+  url: string
+  /** The monitor tags it takes deliveries for, any one of them; `[]` takes every monitor. */
+  tags: string[]
+  createdAt: string | null
+  updatedAt: string | null
+  raw: Json
+}
+
+/** The answer to `webhookEndpoints.create`: the endpoint and its secret, shown only here
+ *  and on rotate. */
+export type WebhookEndpointCreated = WebhookEndpoint & {
+  /** `whsec_…`: check each delivery's `Telem-Signature` with it. */
+  secret: string
+}
+
+/** The answer to `webhookEndpoints.rotate`: the new secret. The one it replaces still
+ *  signs until `previousUntil`. */
+export type WebhookEndpointRotated = {
+  id: string
+  secret: string
+  previousUntil: string
+  raw: Json
+}
+
+/** Options for `webhookEndpoints.create`. */
+export type WebhookEndpointCreateOptions = {
+  /** Monitor tags: the endpoint gets the deliveries of the project's monitors that carry
+   *  any one of them. Leave it out, or send `[]`, for every monitor. */
+  tags?: string[]
+  signal?: AbortSignal
+}
+
+/** Options for `webhookEndpoints.update`. Send `url`, `tags` or both. */
+export type WebhookEndpointUpdateOptions = {
+  /** A new `https` URL. The secret stays. */
+  url?: string
+  /** The endpoint's new tags, in place of all of them. `[]` takes every monitor. */
+  tags?: string[]
+  signal?: AbortSignal
+}
+
+/** The `telem.webhookEndpoints` namespace. */
+export type WebhookEndpointsResource = {
+  /** Add an endpoint to the API key's project, at most 10: past that is 409
+   *  (`too_many_endpoints`). Keep the `secret`: it is not shown again. */
+  create(url: string, options?: WebhookEndpointCreateOptions): Promise<WebhookEndpointCreated>
+  /** The project's endpoints, newest first, without their secrets. */
+  list(options?: { signal?: AbortSignal }): Promise<WebhookEndpoint[]>
+  /** One endpoint, without its secret. Another project's, or a deleted one, answers 404. */
+  get(endpointId: string, options?: { signal?: AbortSignal }): Promise<WebhookEndpoint>
+  /** Change the url, which keeps the secret, or replace the tags. */
+  update(endpointId: string, options: WebhookEndpointUpdateOptions): Promise<WebhookEndpoint>
+  delete(endpointId: string, options?: { signal?: AbortSignal }): Promise<void>
+  /** A new secret. For 24 hours, until `previousUntil`, each delivery is signed with the new
+   *  secret and the one it replaces; a second rotate within them drops the older. */
+  rotate(endpointId: string, options?: { signal?: AbortSignal }): Promise<WebhookEndpointRotated>
+}
