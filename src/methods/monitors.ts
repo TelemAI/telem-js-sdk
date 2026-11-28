@@ -93,6 +93,7 @@ type CreateInput = MonitorCreateCommonOptions & {
   inputs?: MonitorInputs | null
   preset?: string | null
   tags?: string[] | null
+  fetchNewResults?: boolean | { on: boolean; capPerRun?: number } | null
 }
 
 const IDEMPOTENCY_KEY = /^[\x21-\x7e]{1,255}$/
@@ -185,6 +186,10 @@ function agentDocumentFrom(body: unknown): AgentDocument {
   if (typeof data.spec_version === "number") document.specVersion = data.spec_version
   if (data.budget !== undefined) document.budget = isObject(data.budget) ? data.budget : null
   if (typeof data.spend_usd === "number") document.spendUsd = data.spend_usd
+  const held = isObject(data.spec) ? data.spec.fetch_new_results : undefined
+  if (isObject(held) && typeof held.on === "boolean" && Number.isInteger(held.cap_per_run)) {
+    document.fetchNewResults = { on: held.on, capPerRun: held.cap_per_run as number }
+  }
   return document
 }
 
@@ -480,7 +485,17 @@ function createBody(config: ResolvedConfig, query: unknown, options: unknown): {
   body.agent = agent
   if (given.preset != null) body.preset = given.preset
   if (given.tags != null) body.tags = given.tags
+  if (given.fetchNewResults != null) body.fetch_new_results = fetchNewBody(given.fetchNewResults)
   return { body, key }
+}
+
+/** `true`/`false` at the default cap, else `{ on, cap_per_run }`. The router checks the values. */
+function fetchNewBody(value: unknown): Payload {
+  if (typeof value === "boolean") return { on: value }
+  if (!isObject(value) || Object.keys(value).some((key) => key !== "on" && key !== "capPerRun")) {
+    throw invalidRequest("fetchNewResults must be true, false or { on, capPerRun }")
+  }
+  return value.capPerRun === undefined ? { on: value.on } : { on: value.on, cap_per_run: value.capPerRun }
 }
 
 const MAY_EXIST = "The monitor may exist: list monitors before you create it again."
@@ -513,6 +528,7 @@ const ITEM_FIELDS = new Set([
   "agent",
   "inputs",
   "preset",
+  "fetchNewResults",
 ])
 
 function invalidBatch(message: string): TelemError {

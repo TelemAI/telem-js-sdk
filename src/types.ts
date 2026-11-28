@@ -404,6 +404,11 @@ export type MonitorCreateOptions = MonitorCreateCommonOptions &
          *  agent keeps them as they are and may add more. Leave it out and the agent picks
          *  the fields from the query. Refused with `inputs`. */
         preset?: MonitorPreset
+        /** Whether the agent fetches each run's new search results before it reads them:
+         *  `true`, `false`, or `{ on: true, capPerRun: 5 }` for at most that many pages a
+         *  run (1 to 25, default 10). Leave it out and an article monitor fetches them, at
+         *  most 10 a run. Refused with `inputs`. Read it back with `monitors.agent`. */
+        fetchNewResults?: boolean | { on: boolean; capPerRun?: number }
       }
   )
 
@@ -527,8 +532,14 @@ export type AgentDocument = {
   budget?: Json | null
   /** What the agent has spent, in US dollars. */
   spendUsd?: number
+  /** The plan's `fetch_new_results`: whether the agent fetches each run's new search
+   *  results, and at most how many pages a run. */
+  fetchNewResults?: FetchNewResults
   raw: Json
 }
+
+/** `AgentDocument.fetchNewResults`. */
+export type FetchNewResults = { on: boolean; capPerRun: number }
 
 /** The item a change is about. `entityId` is `null` for a change to the whole monitor,
  *  such as a run or a plan change. */
