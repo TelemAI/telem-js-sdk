@@ -89,6 +89,9 @@ const NEEDS_TTL_INPUTS = 'A monitor with inputs must end: pass ttl, such as ttl:
 /** Why a `schema` is refused before anything is sent, as the router would refuse it. */
 const SCHEMA_NEEDS_AGENT = "schema needs the agent: leave agent on, or leave schema out."
 const SCHEMA_WITH_INPUTS = "schema is for a query monitor; a monitor with inputs sets its fields in inputs.schema."
+const STRICT_WITH_INPUTS = "presetStrict is for a query monitor; a monitor with inputs takes none."
+const STRICT_NEEDS_AGENT = "presetStrict needs the agent: leave agent on, or leave presetStrict out."
+const STRICT_NEEDS_PRESET = "presetStrict needs a preset: send preset, or leave presetStrict out."
 
 /** What a create can be given at run time. The types ask for `ttl` with the agent, but a
  *  JavaScript caller can send anything, `null` included, or no options at all. */
@@ -98,6 +101,7 @@ type CreateInput = MonitorCreateCommonOptions & {
   inputs?: MonitorInputs | null
   preset?: string | null
   schema?: MonitorSchema | null
+  presetStrict?: boolean | null
   tags?: string[] | null
   fetchNewResults?: boolean | { on: boolean; capPerRun?: number } | null
 }
@@ -196,6 +200,8 @@ function agentDocumentFrom(body: unknown): AgentDocument {
   if (isObject(held) && typeof held.on === "boolean" && Number.isInteger(held.cap_per_run)) {
     document.fetchNewResults = { on: held.on, capPerRun: held.cap_per_run as number }
   }
+  const strict = isObject(data.spec) ? data.spec.preset_strict : undefined
+  if (typeof strict === "boolean") document.presetStrict = strict
   return document
 }
 
@@ -465,6 +471,11 @@ function createBody(config: ResolvedConfig, query: unknown, options: unknown): {
   const agent = given.agent == null ? true : Boolean(given.agent)
   if (given.schema != null && !agent) throw invalidRequest(SCHEMA_NEEDS_AGENT)
   if (given.schema != null && given.inputs != null) throw invalidRequest(SCHEMA_WITH_INPUTS)
+  const strict = given.presetStrict ?? false
+  if (typeof strict !== "boolean") throw invalidRequest("presetStrict must be true or false")
+  if (strict && given.inputs != null) throw invalidRequest(STRICT_WITH_INPUTS)
+  if (strict && !agent) throw invalidRequest(STRICT_NEEDS_AGENT)
+  if (strict && given.preset == null) throw invalidRequest(STRICT_NEEDS_PRESET)
   if (agent && !given.ttl) throw invalidRequest(given.inputs == null ? NEEDS_TTL : NEEDS_TTL_INPUTS)
   const key = given.idempotencyKey ?? globalThis.crypto.randomUUID()
   if (typeof key !== "string" || !IDEMPOTENCY_KEY.test(key)) {
@@ -494,6 +505,7 @@ function createBody(config: ResolvedConfig, query: unknown, options: unknown): {
   if (given.preset != null) body.preset = given.preset
   // Sent as given: the router checks the schema.
   if (given.schema != null) body.schema = given.schema
+  if (strict) body.preset_strict = true
   if (given.tags != null) body.tags = given.tags
   if (given.fetchNewResults != null) body.fetch_new_results = fetchNewBody(given.fetchNewResults)
   return { body, key }
@@ -540,6 +552,7 @@ const ITEM_FIELDS = new Set([
   "preset",
   "fetchNewResults",
   "schema",
+  "presetStrict",
 ])
 
 function invalidBatch(message: string): TelemError {

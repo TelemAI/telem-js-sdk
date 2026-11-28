@@ -413,6 +413,8 @@ export type MonitorCreateOptions = MonitorCreateCommonOptions &
         /** End the monitor after this long, such as `"7d"` or `"30d"` (at most `"30d"`).
          *  Without it, a monitor without an agent never ends. */
         ttl?: string
+        /** Only `false`: `presetStrict` needs the agent. */
+        presetStrict?: false
       }
     | {
         /** Start the monitor agent with the monitor, the default: it checks every result
@@ -428,8 +430,8 @@ export type MonitorCreateOptions = MonitorCreateCommonOptions &
         inputs?: MonitorInputs
         /** The fields every result has: `"article"` (`headline`, `publication`,
          *  `published_at`, `summary`, `kind`), `"person"`, `"company"` or `"listing"`. The
-         *  agent keeps them as they are and may add more. Leave it out and the agent picks
-         *  the fields from the query. Refused with `inputs`. */
+         *  agent keeps them as they are and may add more (none with `presetStrict`). Leave
+         *  it out and the agent picks the fields from the query. Refused with `inputs`. */
         preset?: MonitorPreset
         /** Whether the agent fetches each run's new search results before it reads them:
          *  `true`, `false`, or `{ on: true, capPerRun: 5 }` for at most that many pages a
@@ -443,6 +445,11 @@ export type MonitorCreateOptions = MonitorCreateCommonOptions &
          *  bad schema with a 422 whose `param` names the attribute. `monitors.agent` shows
          *  yours with `added_by: "caller"`. */
         schema?: MonitorSchema
+        /** `true` keeps the agent to the `preset`'s fields and your `schema`: it adds none
+         *  of its own, though it may still change a preset field's `where`, `unit` or
+         *  `evidence`. Needs a `preset` and the agent; refused with `inputs`, before anything
+         *  is sent. Chat may still add fields later. Read it back with `monitors.agent`. */
+        presetStrict?: boolean
       }
   )
 
@@ -569,6 +576,9 @@ export type AgentDocument = {
   /** The plan's `fetch_new_results`: whether the agent fetches each run's new search
    *  results, and at most how many pages a run. */
   fetchNewResults?: FetchNewResults
+  /** The plan's `preset_strict`: whether the compile kept only the preset's fields and
+   *  yours. */
+  presetStrict?: boolean
   raw: Json
 }
 
