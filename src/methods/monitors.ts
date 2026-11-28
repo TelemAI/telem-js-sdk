@@ -135,8 +135,23 @@ function agentStateFrom(data: Payload): AgentState {
   }
 }
 
+const INSPECT = Symbol.for("nodejs.util.inspect.custom")
+
+/** `console.log` and `util.inspect` show `target` without `key`; the field and
+ *  `JSON.stringify` keep it. */
+function hideFromInspect<T extends object>(target: T, key: string): T {
+  Object.defineProperty(target, INSPECT, {
+    value(this: Record<string, unknown>) {
+      const { [key]: _hidden, ...shown } = this
+      return shown
+    },
+    configurable: true,
+  })
+  return target
+}
+
 function monitorFrom(body: unknown): Monitor {
-  const data = asObject(body)
+  const data = hideFromInspect(asObject(body), "webhook_secret")
   const monitor: Monitor = {
     id: String(data.id ?? ""),
     query: data.query ?? "",
@@ -157,7 +172,7 @@ function monitorFrom(body: unknown): Monitor {
   if (data.agent_state !== undefined) {
     monitor.agentState = isObject(data.agent_state) ? agentStateFrom(data.agent_state) : null
   }
-  return monitor
+  return hideFromInspect(monitor, "webhookSecret")
 }
 
 /** Only the fields the document has: the SDK says nothing the router did not. */
