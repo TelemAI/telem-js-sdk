@@ -310,6 +310,13 @@ function dataMapFrom(body: unknown): DataMap {
   }
 }
 
+/** A number off untrusted JSON: a finite number as sent, a numeric string read as one,
+ *  and 0 (the field's default, as the Python SDK has it) for anything else, never NaN. */
+function finite(value: unknown): number {
+  const n = typeof value === "number" ? value : typeof value === "string" && value.trim() ? Number(value) : NaN
+  return Number.isFinite(n) ? n : 0
+}
+
 function companyFrom(entry: Payload): CompanyListRow {
   return {
     companyId: String(entry.company_id ?? ""),
@@ -322,7 +329,7 @@ function companyFrom(entry: Payload): CompanyListRow {
     newsroomUrl: String(entry.newsroom_url ?? ""),
     teamPage: String(entry.team_page ?? ""),
     tier: String(entry.tier ?? ""),
-    rank: Number(entry.rank ?? 0),
+    rank: finite(entry.rank),
     raw: entry,
   }
 }
@@ -330,10 +337,10 @@ function companyFrom(entry: Payload): CompanyListRow {
 function companyListFrom(body: unknown): CompanyList {
   const data = asObject(body)
   return {
-    total: Number(data.total ?? 0),
-    priorityCount: Number(data.priority_count ?? 0),
-    offset: Number(data.offset ?? 0),
-    limit: Number(data.limit ?? 0),
+    total: finite(data.total),
+    priorityCount: finite(data.priority_count),
+    offset: finite(data.offset),
+    limit: finite(data.limit),
     nextOffset: typeof data.next_offset === "number" ? data.next_offset : null,
     companies: asArray(data.companies).filter(isObject).map(companyFrom),
     raw: data,
