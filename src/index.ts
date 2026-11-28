@@ -75,6 +75,8 @@ export type {
   MonitorExpansionsOptions,
   MonitorFeedbackOptions,
   MonitorInputs,
+  MonitorSchema,
+  MonitorSchemaAttribute,
   MonitorIterateChangesOptions,
   MonitorListOptions,
   MonitorPage,

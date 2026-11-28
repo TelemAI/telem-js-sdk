@@ -373,6 +373,33 @@ export type MonitorInputs = {
   vertical?: string
 }
 
+/** The fields every result of a query monitor has, fixed by you: the `schema` of
+ *  `monitors.create`. Not `MonitorInputs.schema`, which is for a monitor of a list of
+ *  companies. Sent as given, with the router's own field names, and checked by the router. */
+export type MonitorSchema = {
+  /** 1 to 20 attributes. */
+  attributes: MonitorSchemaAttribute[]
+}
+
+/** One attribute of a `MonitorSchema`: a field every result has, as you set it. */
+export type MonitorSchemaAttribute = {
+  /** The field's name, in snake_case, such as `"funding_round"`. */
+  name: string
+  type: "text" | "number" | "date" | "enum" | "bool"
+  /** An enum's values, at most 50. */
+  values?: string[]
+  /** A literal enum's phrases that show each value: `{ value: [phrase, ...] }`. */
+  evidence?: Record<string, string[]>
+  /** A number's unit, such as `"USD"`. */
+  unit?: string
+  /** How the value is written, such as `"YYYY-MM-DD"`. */
+  format?: string
+  /** Where on the page the value is stated. Leave it out for the default. */
+  where?: string
+  /** An enum's grounding. */
+  grounding?: "literal" | "classified"
+}
+
 // The monitor with the agent comes last: TypeScript checks a union member by member and
 // reports the last one, so leaving out `ttl` reads as "Property 'ttl' is missing".
 /** Options for `monitors.create`. A monitor has the agent unless `agent` is `false`,
@@ -409,6 +436,13 @@ export type MonitorCreateOptions = MonitorCreateCommonOptions &
          *  run (1 to 25, default 10). Leave it out and an article monitor fetches them, at
          *  most 10 a run. Refused with `inputs`. Read it back with `monitors.agent`. */
         fetchNewResults?: boolean | { on: boolean; capPerRun?: number }
+        /** Fields of your own that every result has, kept as you set them. The agent may
+         *  add fields of its own. With a `preset`, your field replaces the preset's field of
+         *  the same name. Refused with `inputs`, before anything is sent: a monitor with
+         *  `inputs` sets its fields in `inputs.schema`. Telem checks the rest and refuses a
+         *  bad schema with a 422 whose `param` names the attribute. `monitors.agent` shows
+         *  yours with `added_by: "caller"`. */
+        schema?: MonitorSchema
       }
   )
 

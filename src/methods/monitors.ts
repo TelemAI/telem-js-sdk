@@ -67,6 +67,7 @@ import type {
   MonitorInputs,
   MonitorListOptions,
   MonitorPage,
+  MonitorSchema,
   MonitorsChangesPage,
   MonitorsResource,
   OnboardingCandidate,
@@ -85,6 +86,10 @@ const NEEDS_TTL =
  *  (400); the SDK does not check that before it sends. */
 const NEEDS_TTL_INPUTS = 'A monitor with inputs must end: pass ttl, such as ttl: "30d" (at most 365 days).'
 
+/** Why a `schema` is refused before anything is sent, as the router would refuse it. */
+const SCHEMA_NEEDS_AGENT = "schema needs the agent: leave agent on, or leave schema out."
+const SCHEMA_WITH_INPUTS = "schema is for a query monitor; a monitor with inputs sets its fields in inputs.schema."
+
 /** What a create can be given at run time. The types ask for `ttl` with the agent, but a
  *  JavaScript caller can send anything, `null` included, or no options at all. */
 type CreateInput = MonitorCreateCommonOptions & {
@@ -92,6 +97,7 @@ type CreateInput = MonitorCreateCommonOptions & {
   agent?: boolean | null
   inputs?: MonitorInputs | null
   preset?: string | null
+  schema?: MonitorSchema | null
   tags?: string[] | null
   fetchNewResults?: boolean | { on: boolean; capPerRun?: number } | null
 }
@@ -457,6 +463,8 @@ function createBody(config: ResolvedConfig, query: unknown, options: unknown): {
   const given = (options ?? {}) as CreateInput
   // A missing or null agent is the default: on.
   const agent = given.agent == null ? true : Boolean(given.agent)
+  if (given.schema != null && !agent) throw invalidRequest(SCHEMA_NEEDS_AGENT)
+  if (given.schema != null && given.inputs != null) throw invalidRequest(SCHEMA_WITH_INPUTS)
   if (agent && !given.ttl) throw invalidRequest(given.inputs == null ? NEEDS_TTL : NEEDS_TTL_INPUTS)
   const key = given.idempotencyKey ?? globalThis.crypto.randomUUID()
   if (typeof key !== "string" || !IDEMPOTENCY_KEY.test(key)) {
@@ -484,6 +492,8 @@ function createBody(config: ResolvedConfig, query: unknown, options: unknown): {
   }
   body.agent = agent
   if (given.preset != null) body.preset = given.preset
+  // Sent as given: the router checks the schema.
+  if (given.schema != null) body.schema = given.schema
   if (given.tags != null) body.tags = given.tags
   if (given.fetchNewResults != null) body.fetch_new_results = fetchNewBody(given.fetchNewResults)
   return { body, key }
@@ -529,6 +539,7 @@ const ITEM_FIELDS = new Set([
   "inputs",
   "preset",
   "fetchNewResults",
+  "schema",
 ])
 
 function invalidBatch(message: string): TelemError {
